@@ -31,9 +31,14 @@ def _mock_api(aioclient_mock, *, balances_status=200):
         f"{API}/aspsps",
         params={"country": "ES", "psu_type": "personal"},
         json={"aspsps": [
-            {"name": "Ibercaja Banco", "country": "ES", "maximum_consent_validity": 15552000},
+            {"name": "Ibercaja Banco", "country": "ES", "maximum_consent_validity": 15552000,
+             "logo": "https://enablebanking.com/brands/ES/Ibercaja/"},
             {"name": "Revolut", "country": "ES", "maximum_consent_validity": 7776000},
         ]},
+    )
+    aioclient_mock.get(
+        "https://enablebanking.com/brands/ES/Ibercaja/-/resize/160x/-/format/png/",
+        content=b"\x89PNG", headers={"Content-Type": "image/png"},
     )
     aioclient_mock.post(f"{API}/auth", json={"url": "https://bank.example/login?x=1", "authorization_id": "a1"})
     aioclient_mock.post(
@@ -140,6 +145,9 @@ async def test_full_flow_and_sensor(hass: HomeAssistant, aioclient_mock, pem) ->
     assert state.attributes["bank"] == "Ibercaja Banco"
     assert state.attributes["account"] == "Cuenta ··9012"
     assert state.attributes["unit_of_measurement"] == "EUR"
+    assert state.attributes["entity_picture"] == (
+        "https://enablebanking.com/brands/ES/Ibercaja/-/resize/160x/-/format/png/"
+    )
 
     # The JWT is signed with the uploaded key and carries the app id as kid.
     auth_header = next(h for (_, _, _, h) in aioclient_mock.mock_calls if h and "Authorization" in h)

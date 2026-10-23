@@ -97,6 +97,10 @@ class AccountBalanceSensor(_BankEntity, SensorEntity):
         return float(shares.get(self._key, 100))
 
     @property
+    def entity_picture(self) -> str | None:
+        return self.coordinator.logo
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         data = self._data or {}
         amount = data.get("amount")

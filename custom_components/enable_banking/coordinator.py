@@ -29,12 +29,15 @@ from .api import (
     pick_balance,
 )
 from . import history
+from .logo import async_find_logo
 from . import transactions as tx_utils
 from .util import mask_iban
 from .const import (
     CACHE_REUSE_ON_START,
     CONF_ACCOUNTS,
+    CONF_ASPSP_COUNTRY,
     CONF_ASPSP_NAME,
+    DEFAULT_COUNTRY,
     CONF_SESSION_ID,
     CONF_VALID_UNTIL,
     DOMAIN,
@@ -49,6 +52,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
+LOGO_RECHECK = timedelta(days=30)
 
 type EnableBankingConfigEntry = ConfigEntry[EnableBankingCoordinator]
 
@@ -91,6 +95,11 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
         return self.config_entry.data[CONF_ACCOUNTS]
 
     @property
+    def logo(self) -> str | None:
+        """Raster URL of the bank's logo (from Enable Banking), when known."""
+        return self._cache.get("logo")
+
+    @property
     def consent_valid_until(self) -> datetime | None:
         return dt_util.parse_datetime(self.config_entry.data.get(CONF_VALID_UNTIL, ""))
 
@@ -116,7 +125,28 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
         data = await self._async_update_balances()
         await self._async_update_transactions()
         await self._async_backfill_history(data)
+        await self._async_update_logo()
         return data
+
+    async def _async_update_logo(self) -> None:
+        """Look the logo up once a month; never let it break an update."""
+        checked = dt_util.parse_datetime(self._cache.get("logo_checked", ""))
+        now = dt_util.utcnow()
+        if checked and now - checked < LOGO_RECHECK:
+            return
+        data = self.config_entry.data
+        try:
+            logo = await async_find_logo(
+                self.hass,
+                self.client,
+                data[CONF_ASPSP_NAME],
+                data.get(CONF_ASPSP_COUNTRY, DEFAULT_COUNTRY),
+            )
+        except Exception:  # noqa: BLE001 - cosmetic, retried next month
+            _LOGGER.debug("Logo lookup failed", exc_info=True)
+            logo = self._cache.get("logo")
+        self._cache = {**self._cache, "logo": logo, "logo_checked": now.isoformat()}
+        await self._store.async_save(self._cache)
 
     async def _async_backfill_history(self, data: dict[str, dict[str, Any]]) -> None:
         """Once per account: rebuild the past daily balances from the stored
@@ -385,7 +415,7 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
             raise UpdateFailed("; ".join(failures) or "No se obtuvo ningún saldo")
 
         if fresh:
-            self._cache = {"fetched_at": now.isoformat(), "accounts": {**cached, **result}}
+            self._cache = {**self._cache, "fetched_at": now.isoformat(), "accounts": {**cached, **result}}
             await self._store.async_save(self._cache)
         return result
 
