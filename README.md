@@ -44,6 +44,6 @@ Cada movimiento trae importe con signo (negativo = salida), fecha, contraparte, 
 
 ## Privacidad
 
-La clave privada y los identificadores de sesión se guardan en la configuración local de Home Assistant. Los saldos solo pasan por Enable Banking (proveedor regulado por la autoridad financiera de Finlandia) y por tu Home Assistant.
+La clave privada y los identificadores de sesión se guardan en la configuración local de Home Assistant. Los saldos y movimientos solo pasan por Enable Banking (proveedor regulado por la autoridad financiera de Finlandia) y por tu Home Assistant.
 
 Proyecto personal, sin relación con Enable Banking ni con ningún banco. Úsalo bajo tu responsabilidad y respeta las condiciones de uso del modo restringido (solo tus propias cuentas, uso no comercial).
