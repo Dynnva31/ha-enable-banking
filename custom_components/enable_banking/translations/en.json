@@ -1,0 +1,69 @@
+{
+  "config": {
+    "step": {
+      "credentials": {
+        "title": "Aplicación de Enable Banking",
+        "description": "Sube el archivo .pem que descargaste al registrar la aplicación (su nombre es el ID de la aplicación). Si prefieres, pega su contenido en el campo de texto. El ID solo hace falta si no subes el archivo.",
+        "data": {
+          "pem_file": "Archivo .pem",
+          "private_key": "O pega aquí el contenido del .pem",
+          "app_id": "ID de la aplicación (opcional)"
+        }
+      },
+      "bank": {
+        "title": "Banco",
+        "description": "Elige el banco que quieres conectar. Tiene que estar ya vinculado en el panel de Enable Banking (Link accounts).",
+        "data": {
+          "bank": "Banco"
+        }
+      },
+      "authorize": {
+        "title": "Autoriza en {bank}",
+        "description": "1. Abre este enlace y entra en {bank} con tus claves: [Autorizar en {bank}]({url})\n2. Al terminar, el navegador irá a una página de `localhost` que no carga. Es normal.\n3. Copia la dirección completa de esa página (empieza por `https://localhost/?`) y pégala aquí debajo.\n\n{error}",
+        "data": {
+          "redirect_url": "Dirección de la página que no carga"
+        }
+      },
+      "shares": {
+        "title": "¿Qué parte es tuya?",
+        "description": "Porcentaje de cada cuenta de {bank} que cuenta en tu total. 100 si es solo tuya, 50 si es compartida a medias.",
+        "data": {}
+      },
+      "reauth_confirm": {
+        "title": "Reconectar {bank}",
+        "description": "El permiso de lectura de {bank} ha caducado. Pulsa Enviar para volver a autorizarlo en el banco."
+      }
+    },
+    "error": {
+      "missing_key": "Sube el archivo .pem o pega su contenido.",
+      "missing_app_id": "No se pudo sacar el ID del nombre del archivo. Escríbelo en el campo ID.",
+      "invalid_key": "El contenido no es una clave privada válida.",
+      "invalid_auth": "Enable Banking ha rechazado el ID o la clave. Comprueba que corresponden a la misma aplicación.",
+      "app_inactive": "La aplicación no está activa. Vincula al menos un banco en el panel de Enable Banking.",
+      "no_redirect": "La aplicación no tiene ninguna dirección de vuelta (redirect URL) configurada.",
+      "cannot_connect": "No se pudo conectar con Enable Banking. Inténtalo de nuevo.",
+      "unknown": "Respuesta inesperada de Enable Banking. Mira el registro de Home Assistant.",
+      "unknown_bank": "Ese banco no está en la lista de Enable Banking.",
+      "bank_error": "El banco devolvió un error. Se ha generado un enlace nuevo: vuelve a abrirlo.",
+      "state_mismatch": "Esa dirección no corresponde a este intento. Abre el enlace de arriba y copia la dirección nueva.",
+      "no_code": "La dirección no contiene el código de autorización. Copia la dirección completa.",
+      "session_failed": "No se pudo crear la sesión. Se ha generado un enlace nuevo: vuelve a abrirlo.",
+      "no_accounts": "El banco no ha devuelto cuentas. Comprueba que las vinculaste en el panel de Enable Banking (Link accounts) y vuelve a abrir el enlace nuevo."
+    },
+    "abort": {
+      "already_configured": "Este banco ya está conectado.",
+      "reauth_successful": "Banco reconectado.",
+      "cannot_connect": "No se pudo conectar con Enable Banking: {error}",
+      "auth_start_failed": "Enable Banking no pudo iniciar la autorización: {error}"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "¿Qué parte es tuya?",
+        "description": "Porcentaje de cada cuenta que cuenta en tu total.",
+        "data": {}
+      }
+    }
+  }
+}
