@@ -46,7 +46,9 @@ Authorization: Bearer <token de larga duración>
 
 Cada movimiento trae importe con signo (negativo = salida), fecha, contraparte, concepto, estado (`BOOK`/`PDNG`), código MCC si el banco lo envía, el porcentaje de la cuenta que es tuyo y `internal: true` cuando es un traspaso entre tus propias cuentas. El IBAN de la contraparte sale enmascarado; `counterparty_bank` da solo el código de su banco (p. ej. `1544`), que sirve para reconocer traspasos a tu bróker. Un traspaso a tu propio nombre en un banco no conectado también cuenta como `internal`.
 
-`internal` es `true` cuando el movimiento es un traspaso entre tus cuentas: la otra parte es una cuenta conectada (IBAN), lleva tu nombre (cuenta en un banco no conectado, como un bróker) o tiene su pareja en otra cuenta conectada (mismo importe y moneda, como mucho 4 días de diferencia: recargas con tarjeta, traspasos sin nombre). `internal_reason` dice cuál de las tres (`iban`, `name`, `pair`).
+`internal` es `true` cuando el movimiento es un traspaso entre tus cuentas: la otra parte es una cuenta conectada (IBAN), lleva tu nombre (cuenta en un banco no conectado, como un bróker) o lleva tu nombre completo en el concepto de una transferencia sin otra parte (Ibercaja: «ORDEN: …»), o tiene su pareja en otra cuenta conectada (mismo importe y moneda, como mucho 4 días de diferencia: recargas con tarjeta, traspasos sin nombre). `internal_reason` dice cuál de las tres (`iban`, `name`, `pair`).
+
+Tras renovar el acceso, `enable_banking.read_history` (solo administradores) vuelve a pedir todo el historial y dice hasta qué fecha llegó cada cuenta. Algunos bancos solo lo dan unos minutos después de identificarte (Revolut, 5 minutos).
 
 Para revisar la clasificación, el servicio `enable_banking.audit` (solo administradores, devuelve respuesta) lista los movimientos de los últimos N días con su motivo.
 

@@ -124,6 +124,9 @@ def bank_code(iban: str | None) -> str | None:
     return compact[4:12] if compact[:2] == "DE" else compact[4:8]
 
 
+_TRANSFER_WORDS = {"TRANSFERENCIA", "TRANSFER", "TRASPASO", "TRANSF", "ORDEN", "BENEF", "ORDENANTE", "BENEFICIARIO"}
+
+
 class OwnAccounts:
     """Recognises transfers between the user's own accounts, also to banks
     that are not connected (the holder's own name on the other side)."""
@@ -144,11 +147,18 @@ class OwnAccounts:
             return "iban"
         words = _words(tx.get("counterparty"))
         if not words:
+            # No name on the other side (Ibercaja): a transfer whose concept
+            # carries the holder's full name ("ORDEN: ANA MARIA GARCIA LOPEZ").
+            text = _words(tx.get("description"))
+            if not text & _TRANSFER_WORDS:
+                return None
+            if any(len(holder) >= 3 and holder <= text for holder in self._holders):
+                return "name"
             return None
         for holder in self._holders:
             if holder <= words:
                 return "name"
-            # "Daniel Val Trull" for "Daniel Enric Val Trull": three words in common.
+            # "Ana García López" for "Ana María García López": three words in common.
             if len(holder) >= 3 and len(holder & words) >= 3:
                 return "name"
         return None

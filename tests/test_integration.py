@@ -501,3 +501,15 @@ async def test_read_history_service(hass: HomeAssistant, aioclient_mock, pem, ha
             DOMAIN, "read_history", {}, blocking=True, return_response=True,
             context=Context(user_id=hass_read_only_user.id),
         )
+
+
+def test_holder_name_in_the_concept() -> None:
+    from custom_components.enable_banking.transactions import OwnAccounts
+
+    own = OwnAccounts(set(), ["GARCIA LOPEZ ANA MARIA"])
+    sent = {"counterparty": None, "description": "TRANSFERENCIA OTRA ENTIDAD . ORDEN: ANA MARIA GARCIA LOPEZ"}
+    hyphen = {"counterparty": None, "description": "TRANSFERENCIA OTRA ENTIDAD ANA MARIA GARCIA LOPEZ ANA-MARIA GARCIA LOPEZ"}
+    partner = {"counterparty": None, "description": "TRANSFERENCIA OTRA ENTIDAD AHORROS . BENEF: LUCIA"}
+    card = {"counterparty": None, "description": "TARJETA VISA ANA MARIA GARCIA LOPEZ SHOP"}
+    assert own.reason(sent) == "name" and own.reason(hyphen) == "name"
+    assert own.reason(partner) is None and own.reason(card) is None
