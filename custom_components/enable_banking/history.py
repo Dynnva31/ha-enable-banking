@@ -4,9 +4,10 @@ Home Assistant records a balance only from the day the integration is added,
 so its history charts start empty. The transactions already read (up to 90
 days back on the first read) tell how each balance got to today's value:
 walking back from today's balance and undoing every booked movement gives the
-closing balance of each earlier day. Those days are imported once as
-long-term statistics of the balance sensor, only before its first recorded
-statistic, so nothing Home Assistant measured itself is overwritten. All of
+closing balance of each earlier day. Those days are imported as
+long-term statistics of the balance sensor, only before the integration was
+added, so nothing Home Assistant measured itself is overwritten; they are
+rebuilt again whenever older movements arrive. All of
 it happens inside Home Assistant; nothing is sent anywhere.
 """
 
@@ -83,9 +84,14 @@ async def async_backfill(
     entity_id: str,
     current: float,
     booked: list[dict[str, Any]],
+    since: datetime | None = None,
 ) -> bool:
     """Import the rebuilt days for one balance sensor. True when it is done
-    (imported, or nothing to import); False to try again later."""
+    (imported, or nothing to import); False to try again later.
+
+    `since` is when the integration was added: everything before it was
+    rebuilt (Home Assistant could not measure it), so those days are
+    rebuilt again from the movements known now, which may be more complete."""
     if "recorder" not in hass.config.components:
         return True
 
@@ -103,33 +109,39 @@ async def async_backfill(
     if entity_id not in metadata:
         return False  # the sensor has not been compiled into statistics yet
 
-    first = await instance.async_add_executor_job(
-        lambda: statistics_during_period(
-            hass,
-            dt_util.utc_from_timestamp(0),
-            None,
-            {entity_id},
-            "month",
-            None,
-            {"state", "sum"},
+    async def first_recorded_hour(start: datetime) -> dict[str, Any] | None:
+        hourly = await instance.async_add_executor_job(
+            lambda: statistics_during_period(
+                hass, start, start + timedelta(days=32), {entity_id}, "hour", None, {"state", "sum"}
+            )
         )
-    )
-    first_rows = first.get(entity_id) or []
-    if not first_rows:
-        return False
+        hours = hourly.get(entity_id) or []
+        return hours[0] if hours and hours[0].get("state") is not None else None
 
-    row = first_rows[0]
-    start = row.get("start")
-    before = dt_util.utc_from_timestamp(start) if isinstance(start, (int, float)) else start
-    hourly = await instance.async_add_executor_job(
-        lambda: statistics_during_period(
-            hass, before, before + timedelta(days=32), {entity_id}, "hour", None, {"state", "sum"}
+    first_hour = None
+    if since is not None:
+        first_hour = await first_recorded_hour(dt_util.as_utc(since).replace(minute=0, second=0, microsecond=0))
+    if first_hour is None:
+        first = await instance.async_add_executor_job(
+            lambda: statistics_during_period(
+                hass,
+                dt_util.utc_from_timestamp(0),
+                None,
+                {entity_id},
+                "month",
+                None,
+                {"state", "sum"},
+            )
         )
-    )
-    hours = hourly.get(entity_id) or []
-    if not hours or hours[0].get("state") is None:
-        return False
-    first_hour = hours[0]
+        first_rows = first.get(entity_id) or []
+        if not first_rows:
+            return False
+        start = first_rows[0].get("start")
+        first_hour = await first_recorded_hour(
+            dt_util.utc_from_timestamp(start) if isinstance(start, (int, float)) else start
+        )
+        if first_hour is None:
+            return False
     first_start = first_hour["start"]
     before = dt_util.utc_from_timestamp(first_start) if isinstance(first_start, (int, float)) else first_start
 

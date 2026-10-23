@@ -140,7 +140,10 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
             if not entity_id:
                 continue
             try:
-                finished = await history.async_backfill(self.hass, entity_id, float(balance["amount"]), booked)
+                finished = await history.async_backfill(
+                    self.hass, entity_id, float(balance["amount"]), booked,
+                    since=getattr(self.config_entry, "created_at", None),
+                )
             except Exception:  # noqa: BLE001 - the history is a bonus, never break the balances
                 _LOGGER.exception("No se pudo reconstruir el historial de %s", entity_id)
                 finished = True
@@ -203,7 +206,7 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
                 continue
 
             currency = account.get("currency") or "EUR"
-            normalized = [t for t in (tx_utils.normalize(r, currency) for r in raw) if t]
+            normalized = tx_utils.normalize_all(raw, currency)
             stored_accounts[key] = tx_utils.merge(
                 stored_accounts.get(key), normalized, today=today, keep_days=TRANSACTIONS_KEEP_DAYS
             )
@@ -250,7 +253,7 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
                 except EnableBankingError as err:
                     attempts.append({"way": name, "error": str(err)[:200]})
                     continue
-                normalized = [t for t in (tx_utils.normalize(r, currency) for r in raw) if t]
+                normalized = tx_utils.normalize_all(raw, currency)
                 dates = sorted(t["date"] for t in normalized if t.get("date"))
                 attempts.append({"way": name, "read": len(normalized), "oldest": dates[0] if dates else None})
                 stored_accounts[key] = tx_utils.merge(
@@ -282,10 +285,14 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
         # The cut is the first movement read from the bank, not an imported one.
         dates = [t["date"] for k, t in booked.items() if t.get("date") and not k.startswith("s:")]
         first = min(dates) if dates else None
-        rows_in = tx_utils.from_statement(rows, account.get("currency") or "EUR", first)
+        currency = account.get("currency") or "EUR"
+        rows_in = tx_utils.from_statement(rows, currency, first)
         new = [t for t in rows_in if t["id"] not in booked]
         for tx in new:
             booked[tx["id"]] = tx
+        # Days the bank already gave: complete those movements instead.
+        overlap = [t for t in tx_utils.from_statement(rows, currency, None) if first and t["date"] >= first]
+        enriched, recovered = tx_utils.enrich(booked, overlap)
         stored_accounts[key] = {"booked": booked, "pending": list(stored.get("pending") or [])}
         done = [k for k in (self._tx.get("history_done") or []) if k != key]
         self._tx = {**self._tx, "accounts": stored_accounts, "history_done": done}
@@ -296,7 +303,9 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
         return {
             "imported": len(new),
             "already_there": len(rows_in) - len(new),
-            "ignored": len(rows) - len(rows_in),
+            "completed": enriched,
+            "recovered": recovered,
+            "ignored": len(rows) - len(rows_in) - len(overlap),
             "from": kept[0] if kept else None,
             "to": kept[-1] if kept else None,
         }

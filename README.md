@@ -56,7 +56,7 @@ Para revisar la clasificación, el servicio `enable_banking.audit` (solo adminis
 
 ## Historial desde el primer día
 
-Home Assistant solo guarda un saldo desde que se añade la integración. Para que los gráficos no empiecen vacíos, la integración reconstruye una vez el saldo de cierre de cada día anterior a partir de los movimientos ya leídos: parte del saldo de hoy y deshace cada movimiento. Esos días se importan como estadísticas del sensor de saldo, solo antes de la primera estadística que ya existe, así que no se sobrescribe nada medido. Tras una renovación con movimientos más antiguos, se añaden los días que faltan por delante. Todo ocurre dentro de Home Assistant.
+Home Assistant solo guarda un saldo desde que se añade la integración. Para que los gráficos no empiecen vacíos, la integración reconstruye una vez el saldo de cierre de cada día anterior a partir de los movimientos ya leídos: parte del saldo de hoy y deshace cada movimiento. Esos días se importan como estadísticas del sensor de saldo, solo los anteriores a añadir la integración, así que no se sobrescribe nada medido. Cuando llegan movimientos más antiguos (una renovación, un extracto) se rehacen con ellos. Todo ocurre dentro de Home Assistant.
 
 ## Privacidad
 

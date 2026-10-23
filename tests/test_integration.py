@@ -537,3 +537,29 @@ async def test_import_statement(hass: HomeAssistant, aioclient_mock, pem, hass_a
     assert result["imported"] == 3 and result["from"] == "2026-09-01" and result["to"] == "2026-09-02"
     again = await call()
     assert again["imported"] == 0 and again["already_there"] == 3
+
+
+def test_identical_movements_keep_their_own_ids() -> None:
+    from custom_components.enable_banking.transactions import normalize_all
+
+    bare = {"transaction_amount": {"currency": "EUR", "amount": "763.37"}, "credit_debit_indicator": "DBIT",
+            "status": "BOOK", "booking_date": "2026-10-08"}
+    txs = normalize_all([bare, dict(bare), dict(bare)], "EUR")
+    ids = [t["id"] for t in txs]
+    assert len(set(ids)) == 3 and ids[1] == ids[0] + "#1" and ids[2] == ids[0] + "#2"
+
+
+def test_statement_completes_and_recovers() -> None:
+    from custom_components.enable_banking.transactions import enrich, from_statement, merge, normalize_all
+    from datetime import date as d
+
+    bare = {"transaction_amount": {"currency": "EUR", "amount": "763.37"}, "credit_debit_indicator": "DBIT",
+            "status": "BOOK", "booking_date": "2026-10-08"}
+    stored = merge(None, normalize_all([bare], "EUR"), today=d(2026, 10, 23), keep_days=1100)["booked"]
+    rows = from_statement([{"date": "2026-10-08", "amount": -763.37, "description": "BRITISH AWYS", "bank_code": "CARD"}] * 4, "EUR", None)
+    enriched, added = enrich(stored, rows)
+    assert (enriched, added) == (1, 3) and len(stored) == 4
+    assert all(t["description"] == "BRITISH AWYS" for t in stored.values())
+    # The next read (now with distinct ids) keeps the details.
+    again = merge({"booked": stored}, normalize_all([bare] * 4, "EUR"), today=d(2026, 10, 23), keep_days=1100)["booked"]
+    assert len(again) == 4 and all(t["description"] == "BRITISH AWYS" for t in again.values())

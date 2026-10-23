@@ -71,6 +71,28 @@ def normalize(raw: dict[str, Any], currency: str) -> dict[str, Any] | None:
     return tx
 
 
+def normalize_all(raw: list[dict[str, Any]], currency: str) -> list[dict[str, Any]]:
+    """Normalize a read. Identical movements without a bank reference (two
+    equal card payments the same day, as Trade Republic sends them) would
+    share one id and collapse into one: the second gets "#1", the third
+    "#2"... The first keeps the plain id, so stored ids do not change."""
+    result: list[dict[str, Any]] = []
+    seen: dict[str, int] = {}
+    for item in raw:
+        tx = normalize(item, currency)
+        if not tx:
+            continue
+        count = seen.get(tx["id"], 0)
+        seen[tx["id"]] = count + 1
+        if count:
+            tx["id"] = f"{tx['id']}#{count}"
+        result.append(tx)
+    return result
+
+
+_DETAIL_FIELDS = ("counterparty", "counterparty_iban", "description", "bank_code")
+
+
 def merge(
     stored: dict[str, Any] | None,
     fetched: list[dict[str, Any]],
@@ -87,6 +109,10 @@ def merge(
     pending: list[dict[str, Any]] = []
     for tx in fetched:
         if tx["status"] == "BOOK":
+            old = booked.get(tx["id"])
+            if old and old.get("enriched"):
+                # Details copied from a statement stay when the bank sends less.
+                tx = {**tx, **{k: old[k] for k in _DETAIL_FIELDS if old.get(k) and not tx.get(k)}, "enriched": True}
             booked[tx["id"]] = tx
         else:
             pending.append(tx)
@@ -120,7 +146,7 @@ def from_statement(rows: list[dict[str, Any]], currency: str, before: str | None
             "amount": amount,
             "currency": _clean(row.get("currency")) or currency,
             "counterparty": _clean(row.get("counterparty")),
-            "counterparty_iban": None,
+            "counterparty_iban": (_clean(row.get("counterparty_iban")) or "").replace(" ", "").upper() or None,
             "description": _clean(row.get("description")),
             "status": "BOOK",
             "mcc": None,
@@ -132,6 +158,41 @@ def from_statement(rows: list[dict[str, Any]], currency: str, before: str | None
         tx["id"] = "s:" + hashlib.sha1(f"{fingerprint}|{occurrence}".encode()).hexdigest()[:20]
         result.append(tx)
     return result
+
+
+def enrich(booked: dict[str, dict[str, Any]], rows: list[dict[str, Any]]) -> tuple[int, int]:
+    """Statement rows for days the bank already gave: fill in what the bank
+    left out (who and what) on the matching stored movement, same day and
+    amount. A row with no match is a movement the read lost (identical ones
+    collapsed); it is added under the id the next read will give it.
+    Returns (enriched, added)."""
+    pool: dict[tuple[str, float], list[str]] = {}
+    for key, tx in sorted(booked.items(), key=lambda kv: kv[0]):
+        if key.startswith("s:"):
+            continue
+        pool.setdefault((tx.get("date") or "", round(float(tx.get("amount") or 0), 2)), []).append(key)
+    base_ids = {k: ids[0].split("#")[0] for k, ids in pool.items() if ids}
+    used: dict[tuple[str, float], int] = {}
+    enriched = added = 0
+    for row in rows:
+        key = (row["date"], row["amount"])
+        used[key] = used.get(key, 0) + 1
+        ids = pool.get(key) or []
+        if ids:
+            tx = booked[ids.pop(0)]
+            for field in _DETAIL_FIELDS:
+                if row.get(field) and not tx.get(field):
+                    tx[field] = row[field]
+            tx["enriched"] = True
+            enriched += 1
+            continue
+        base = base_ids.get(key)
+        new_id = f"{base}#{used[key] - 1}" if base else row["id"]
+        if new_id in booked:
+            continue
+        booked[new_id] = {**row, "id": new_id, "enriched": True}
+        added += 1
+    return enriched, added
 
 
 def last_booked_date(stored: dict[str, Any] | None) -> date | None:
