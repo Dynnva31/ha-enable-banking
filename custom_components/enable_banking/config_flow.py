@@ -123,6 +123,7 @@ class EnableBankingConfigFlow(ConfigFlow, domain=DOMAIN):
         self._session: dict[str, Any] | None = None
         self._accounts: list[dict[str, Any]] = []
         self._reauth = False
+        self._reconfigure = False
 
     @staticmethod
     @callback
@@ -400,8 +401,37 @@ class EnableBankingConfigFlow(ConfigFlow, domain=DOMAIN):
         return await self.async_step_authorize()
 
     async def _async_finish_reauth(self) -> ConfigFlowResult:
-        entry = self._get_reauth_entry()
+        if self._reconfigure:
+            entry = self._get_reconfigure_entry()
+        else:
+            entry = self._get_reauth_entry()
         return self.async_update_reload_and_abort(entry, data=self._entry_data())
+
+    # ---- reconfigure (renew access before it expires) ------------------------
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Log in to the bank again: 180 more days of access and, if the bank
+        allows it, up to two years of past movements."""
+        entry = self._get_reconfigure_entry()
+        if not self._reconfigure:
+            self._reauth = True
+            self._reconfigure = True
+            data = entry.data
+            self._app_id = data[CONF_APP_ID]
+            self._private_key = data[CONF_PRIVATE_KEY]
+            self._redirect_url = data[CONF_REDIRECT_URL]
+            self._aspsp = {
+                "name": data[CONF_ASPSP_NAME],
+                "country": data.get(CONF_ASPSP_COUNTRY, DEFAULT_COUNTRY),
+            }
+        if user_input is None:
+            return self.async_show_form(
+                step_id="reconfigure",
+                description_placeholders={"bank": self._aspsp["name"] if self._aspsp else ""},
+            )
+        return await self.async_step_reauth_confirm(user_input)
 
 
 class EnableBankingOptionsFlow(OptionsFlow):

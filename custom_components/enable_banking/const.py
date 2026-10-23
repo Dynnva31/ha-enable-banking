@@ -38,6 +38,9 @@ MAX_CONSENT: Final = timedelta(days=180)
 TRANSACTIONS_INTERVAL: Final = timedelta(hours=11, minutes=30)
 # First read: most banks only give 90 days without a fresh login.
 TRANSACTIONS_INITIAL_DAYS: Final = 89
+# Right after a login (new connection or renewed access) PSD2 lets banks hand
+# out older movements, often only for a few minutes: ask for two years then.
+TRANSACTIONS_HISTORY_DAYS: Final = 730
 # Later reads overlap the last booked day to catch late bookings.
 TRANSACTIONS_OVERLAP_DAYS: Final = 5
 # Booked transactions older than this are dropped from storage.

@@ -35,8 +35,10 @@ from .const import (
     CACHE_REUSE_ON_START,
     CONF_ACCOUNTS,
     CONF_ASPSP_NAME,
+    CONF_SESSION_ID,
     CONF_VALID_UNTIL,
     DOMAIN,
+    TRANSACTIONS_HISTORY_DAYS,
     TRANSACTIONS_INITIAL_DAYS,
     TRANSACTIONS_INTERVAL,
     TRANSACTIONS_KEEP_DAYS,
@@ -150,10 +152,20 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
             await self._tx_store.async_save(self._tx)
 
     async def _async_update_transactions(self) -> None:
-        """Read new transactions twice a day; failures keep what is stored."""
+        """Read new transactions twice a day; failures keep what is stored.
+
+        Right after a login (a new connection or renewed access) it reads up
+        to two years back at once, because many banks only release movements
+        older than 90 days in the minutes after the customer authenticates.
+        """
         now = dt_util.utcnow()
+        session = self.config_entry.data.get(CONF_SESSION_ID)
+        if "session_id" not in self._tx and self._tx.get("accounts"):
+            # Stored before sessions were tracked: that was this same login.
+            self._tx = {**self._tx, "session_id": session}
+        fresh_login = self._tx.get("session_id") != session
         fetched_at = self.transactions_fetched_at
-        if fetched_at and now - fetched_at < TRANSACTIONS_INTERVAL:
+        if not fresh_login and fetched_at and now - fetched_at < TRANSACTIONS_INTERVAL:
             return
 
         today = dt_util.now().date()
@@ -162,11 +174,12 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
         for account in self.accounts:
             key = account["identification_hash"]
             last = tx_utils.last_booked_date(stored_accounts.get(key))
-            date_from = (
-                last - timedelta(days=TRANSACTIONS_OVERLAP_DAYS)
-                if last
-                else today - timedelta(days=TRANSACTIONS_INITIAL_DAYS)
-            )
+            if fresh_login:
+                date_from = today - timedelta(days=TRANSACTIONS_HISTORY_DAYS)
+            elif last:
+                date_from = last - timedelta(days=TRANSACTIONS_OVERLAP_DAYS)
+            else:
+                date_from = today - timedelta(days=TRANSACTIONS_INITIAL_DAYS)
             try:
                 try:
                     raw = await self.client.get_transactions(account["uid"], date_from=date_from)
@@ -187,7 +200,15 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
             updated += 1
 
         if updated:
-            self._tx = {**self._tx, "fetched_at": now.isoformat(), "accounts": stored_accounts}
+            self._tx = {
+                **self._tx,
+                "fetched_at": now.isoformat(),
+                "accounts": stored_accounts,
+                "session_id": session,
+            }
+            if fresh_login:
+                # Older days may have arrived: rebuild the history again.
+                self._tx["history_done"] = []
             await self._tx_store.async_save(self._tx)
 
     async def _async_update_balances(self) -> dict[str, dict[str, Any]]:

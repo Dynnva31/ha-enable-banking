@@ -52,7 +52,7 @@ def _mock_api(aioclient_mock, *, balances_status=200):
     # Most specific mock first: the mock matches on a subset of the query.
     aioclient_mock.get(
         f"{API}/accounts/uid-1/transactions",
-        params={"date_from": (dt_util.now().date() - timedelta(days=89)).isoformat(), "continuation_key": "page2"},
+        params={"date_from": (dt_util.now().date() - timedelta(days=730)).isoformat(), "continuation_key": "page2"},
         json={"transactions": [
             {"transaction_amount": {"currency": "EUR", "amount": "12.00"}, "credit_debit_indicator": "DBIT",
              "status": "PDNG", "booking_date": "2026-10-23", "creditor": {"name": "SPOTIFY"}},
@@ -60,7 +60,7 @@ def _mock_api(aioclient_mock, *, balances_status=200):
     )
     aioclient_mock.get(
         f"{API}/accounts/uid-1/transactions",
-        params={"date_from": (dt_util.now().date() - timedelta(days=89)).isoformat()},
+        params={"date_from": (dt_util.now().date() - timedelta(days=730)).isoformat()},
         json={
             "transactions": [
                 {"entry_reference": "e1", "transaction_amount": {"currency": "EUR", "amount": "54.20"},
@@ -322,3 +322,49 @@ def test_statistic_rows_stop_before_the_first_recorded_hour() -> None:
     # Sums continue backwards from the first recorded row (state 930, sum 10)
     assert [r["sum"] for r in rows] == [-920.0, 60.0]
     assert all(r["start"] < before for r in rows)
+
+
+async def test_new_login_reads_two_years(hass: HomeAssistant, aioclient_mock, pem) -> None:
+    """A renewed access (new session) reads two years back right away, once."""
+    _mock_api(aioclient_mock)
+    result = await _run_flow(hass, pem)
+    entry = result["result"]
+    await hass.async_block_till_done()
+    two_years = (dt_util.now().date() - timedelta(days=730)).isoformat()
+
+    def deep_reads() -> int:
+        return sum(1 for c in aioclient_mock.mock_calls if "/transactions" in str(c[1]) and f"date_from={two_years}" in str(c[1]))
+
+    first = deep_reads()
+    assert first >= 1  # the first connection also asks for two years
+
+    # Same login: a refresh does not read again (twice a day only).
+    coordinator = entry.runtime_data
+    await coordinator.async_refresh()
+    assert deep_reads() == first
+
+    # Renewed access: a new session id makes the next refresh read two years again.
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "session_id": "s-2"})
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    assert deep_reads() > first
+    assert entry.runtime_data._tx["session_id"] == "s-2"
+
+
+async def test_reconfigure_offers_a_new_login(hass: HomeAssistant, aioclient_mock, pem) -> None:
+    _mock_api(aioclient_mock)
+    result = await _run_flow(hass, pem)
+    entry = result["result"]
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_RECONFIGURE, "entry_id": entry.entry_id}
+    )
+    assert result["type"] is FlowResultType.FORM and result["step_id"] == "reconfigure"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["step_id"] == "authorize", result
+    flow = hass.config_entries.flow._progress[result["flow_id"]]
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"redirect_url": f"https://localhost/?state={flow._state}&code=abc"}
+    )
+    assert result["type"] is FlowResultType.ABORT and result["reason"] == "reconfigure_successful"

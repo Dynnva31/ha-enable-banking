@@ -31,7 +31,9 @@ Repite para cada banco; a partir del segundo ya no pide la clave. El porcentaje 
 
 ## Movimientos
 
-Dos veces al día, junto a una lectura de saldo, la integración lee los movimientos nuevos de cada cuenta (la primera vez, los últimos 90 días) y los guarda en Home Assistant hasta unos 3 años. Los pendientes se sustituyen en cada lectura para que no se dupliquen al contabilizarse.
+Dos veces al día, junto a una lectura de saldo, la integración lee los movimientos nuevos de cada cuenta y los guarda en Home Assistant hasta unos 3 años. Los pendientes se sustituyen en cada lectura para que no se dupliquen al contabilizarse.
+
+Justo después de entrar en el banco (al conectarlo o al renovarlo) pide hasta 2 años de movimientos: por PSD2, muchos bancos solo dan lo anterior a 90 días en los minutos siguientes a identificarte (Revolut, 5 minutos). Para conseguirlo más tarde, o para renovar el acceso antes de que caduque: **Ajustes → Dispositivos y servicios → Enable Banking → ⋮ del banco → Reconfigurar**, y abre el enlace del banco enseguida.
 
 Se pueden leer con un token de larga duración del **propietario** de Home Assistant (otros usuarios reciben 403):
 
@@ -44,7 +46,7 @@ Cada movimiento trae importe con signo (negativo = salida), fecha, contraparte, 
 
 ## Historial desde el primer día
 
-Home Assistant solo guarda un saldo desde que se añade la integración. Para que los gráficos no empiecen vacíos, la integración reconstruye una vez el saldo de cierre de cada día anterior a partir de los movimientos ya leídos (hasta 90 días): parte del saldo de hoy y deshace cada movimiento. Esos días se importan como estadísticas del sensor de saldo, solo antes de la primera estadística que registró Home Assistant, así que no se sobrescribe nada medido. Todo ocurre dentro de Home Assistant.
+Home Assistant solo guarda un saldo desde que se añade la integración. Para que los gráficos no empiecen vacíos, la integración reconstruye una vez el saldo de cierre de cada día anterior a partir de los movimientos ya leídos: parte del saldo de hoy y deshace cada movimiento. Esos días se importan como estadísticas del sensor de saldo, solo antes de la primera estadística que ya existe, así que no se sobrescribe nada medido. Tras una renovación con movimientos más antiguos, se añaden los días que faltan por delante. Todo ocurre dentro de Home Assistant.
 
 ## Privacidad
 

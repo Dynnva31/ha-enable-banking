@@ -32,6 +32,10 @@
       "reauth_confirm": {
         "title": "Reconectar {bank}",
         "description": "El permiso de lectura de {bank} ha caducado. Pulsa Enviar para volver a autorizarlo en el banco."
+      },
+      "reconfigure": {
+        "title": "Renovar {bank}",
+        "description": "Vuelve a entrar en {bank} para renovar el permiso de lectura 180 días. Justo después, la integración lee hasta 2 años de movimientos (si el banco lo permite) y rehace el historial de saldos. Pulsa Enviar y abre enseguida el enlace."
       }
     },
     "error": {
@@ -54,7 +58,8 @@
       "already_configured": "Este banco ya está conectado.",
       "reauth_successful": "Banco reconectado.",
       "cannot_connect": "No se pudo conectar con Enable Banking: {error}",
-      "auth_start_failed": "Enable Banking no pudo iniciar la autorización: {error}"
+      "auth_start_failed": "Enable Banking no pudo iniciar la autorización: {error}",
+      "reconfigure_successful": "Banco renovado. Los movimientos antiguos se leen ahora mismo."
     }
   },
   "options": {
