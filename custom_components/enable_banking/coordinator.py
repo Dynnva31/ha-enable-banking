@@ -15,6 +15,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -27,6 +28,7 @@ from .api import (
     SessionExpired,
     pick_balance,
 )
+from . import history
 from . import transactions as tx_utils
 from .util import mask_iban
 from .const import (
@@ -111,7 +113,41 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         data = await self._async_update_balances()
         await self._async_update_transactions()
+        await self._async_backfill_history(data)
         return data
+
+    async def _async_backfill_history(self, data: dict[str, dict[str, Any]]) -> None:
+        """Once per account: rebuild the past daily balances from the stored
+        transactions so the history charts do not start empty."""
+        stored = self._tx.get("accounts") or {}
+        if not stored:
+            return
+        done = set(self._tx.get("history_done") or [])
+        registry = er.async_get(self.hass)
+        prefix = self.config_entry.unique_id or self.config_entry.entry_id
+        changed = False
+        for account in self.accounts:
+            key = account["identification_hash"]
+            balance = data.get(key) or {}
+            if key in done or balance.get("stale") or balance.get("amount") is None:
+                continue
+            booked = list(((stored.get(key) or {}).get("booked") or {}).values())
+            if not booked:
+                continue
+            entity_id = registry.async_get_entity_id("sensor", DOMAIN, f"{prefix}_{key}")
+            if not entity_id:
+                continue
+            try:
+                finished = await history.async_backfill(self.hass, entity_id, float(balance["amount"]), booked)
+            except Exception:  # noqa: BLE001 - the history is a bonus, never break the balances
+                _LOGGER.exception("No se pudo reconstruir el historial de %s", entity_id)
+                finished = True
+            if finished:
+                done.add(key)
+                changed = True
+        if changed:
+            self._tx = {**self._tx, "history_done": sorted(done)}
+            await self._tx_store.async_save(self._tx)
 
     async def _async_update_transactions(self) -> None:
         """Read new transactions twice a day; failures keep what is stored."""
@@ -151,7 +187,7 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
             updated += 1
 
         if updated:
-            self._tx = {"fetched_at": now.isoformat(), "accounts": stored_accounts}
+            self._tx = {**self._tx, "fetched_at": now.isoformat(), "accounts": stored_accounts}
             await self._tx_store.async_save(self._tx)
 
     async def _async_update_balances(self) -> dict[str, dict[str, Any]]:

@@ -42,6 +42,10 @@ Authorization: Bearer <token de larga duración>
 
 Cada movimiento trae importe con signo (negativo = salida), fecha, contraparte, concepto, estado (`BOOK`/`PDNG`), código MCC si el banco lo envía, el porcentaje de la cuenta que es tuyo y `internal: true` cuando es un traspaso entre tus propias cuentas. El IBAN de la contraparte sale enmascarado.
 
+## Historial desde el primer día
+
+Home Assistant solo guarda un saldo desde que se añade la integración. Para que los gráficos no empiecen vacíos, la integración reconstruye una vez el saldo de cierre de cada día anterior a partir de los movimientos ya leídos (hasta 90 días): parte del saldo de hoy y deshace cada movimiento. Esos días se importan como estadísticas del sensor de saldo, solo antes de la primera estadística que registró Home Assistant, así que no se sobrescribe nada medido. Todo ocurre dentro de Home Assistant.
+
 ## Privacidad
 
 La clave privada y los identificadores de sesión se guardan en la configuración local de Home Assistant. Los saldos y movimientos solo pasan por Enable Banking (proveedor regulado por la autoridad financiera de Finlandia) y por tu Home Assistant.

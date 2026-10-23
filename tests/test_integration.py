@@ -284,3 +284,41 @@ def test_account_label_product_codes():
     assert account_label({"product": "XYZ_123", "iban": iban}) == "Cuenta ··4321"
     assert account_label({"product": "Cuenta Online", "iban": iban}) == "Cuenta Online ··4321"
     assert account_label({"iban": iban}) == "Cuenta ··4321"
+
+
+def test_daily_closing_balances() -> None:
+    from datetime import date
+
+    from custom_components.enable_banking.history import daily_closing_balances
+
+    today = date(2026, 10, 23)
+    booked = [
+        {"date": "2026-10-22", "amount": -50.0},
+        {"date": "2026-10-20", "amount": 1000.0},
+        {"date": "2026-10-20", "amount": -20.0},
+        {"date": "2026-10-23", "amount": -5.0},
+    ]
+    balances = daily_closing_balances(925.0, booked, today)
+    # Today 925; before today's −5 → 930 at the close of the 22nd; before −50 → 980
+    assert balances[date(2026, 10, 22)] == 930.0
+    assert balances[date(2026, 10, 21)] == 980.0
+    assert balances[date(2026, 10, 20)] == 980.0
+    # The day before the oldest movement: before +1000 and −20
+    assert balances[date(2026, 10, 19)] == 0.0
+    assert min(balances) == date(2026, 10, 19)
+    assert date(2026, 10, 23) not in balances
+    assert daily_closing_balances(10.0, [], today) == {}
+
+
+def test_statistic_rows_stop_before_the_first_recorded_hour() -> None:
+    from datetime import date, datetime, timezone
+
+    from custom_components.enable_banking.history import statistic_rows
+
+    balances = {date(2026, 10, 19): 0.0, date(2026, 10, 20): 980.0, date(2026, 10, 21): 980.0}
+    before = datetime(2026, 10, 20, 12, tzinfo=timezone.utc)
+    rows = statistic_rows(balances, before, anchor_state=930.0, anchor_sum=10.0)
+    assert [r["state"] for r in rows] == [0.0, 980.0]
+    # Sums continue backwards from the first recorded row (state 930, sum 10)
+    assert [r["sum"] for r in rows] == [-920.0, 60.0]
+    assert all(r["start"] < before for r in rows)
