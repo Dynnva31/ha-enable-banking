@@ -34,9 +34,27 @@ def _day(value: Any) -> date | None:
         return None
 
 
+_NOT_A_TRANSFER = ("TARJETA", "CARD_PAYMENT", "CARD PAYMENT", "BIZUM", "COMPRA", "RECIBO", "ADEUDO")
+
+
+_TRANSFER_HINTS = ("TOP-UP", "TOPUP", "TOP UP", "RECARGA", "REVOLUT", "TRADE REPUBLIC", "TRASPASO", "TRANSFER")
+
+
+def _could_be_transfer(tx: dict[str, Any]) -> bool:
+    """Card payments, Bizum and direct debits never pair, even with an equal
+    amount, unless they are a top-up of another account (a Revolut card top-up)."""
+    text = " ".join(str(tx.get(k) or "") for k in ("description", "bank_code", "counterparty")).upper()
+    if "BIZUM" not in text and any(hint in text for hint in _TRANSFER_HINTS):
+        return True
+    if tx.get("mcc"):
+        return False
+    return not any(word in text for word in _NOT_A_TRANSFER)
+
+
 def match_pairs(items: list[dict[str, Any]]) -> dict[str, str]:
     """Pair each outgoing movement with an incoming one of the same amount in
     another account, closest date first. Returns id -> partner id."""
+    items = [t for t in items if _could_be_transfer(t)]
     incoming: dict[tuple[str, float], list[dict[str, Any]]] = defaultdict(list)
     for tx in items:
         if (tx.get("amount") or 0) > 0:
@@ -96,7 +114,13 @@ def collect(hass: HomeAssistant, since: str | None = None) -> dict[str, Any]:
                 "share_percent": share,
             })
             for tx in coordinator.account_transactions(key):
-                raw.append({**tx, "_account": entity_id or key, "_bank": bank, "_share": share})
+                raw.append({
+                    **tx,
+                    "_account": entity_id or key,
+                    "_bank": bank,
+                    "_share": share,
+                    "_own_iban": account.get("iban"),
+                })
 
     # Pairs are found over everything stored, so a "since" filter does not
     # hide the other half of a transfer.
@@ -105,7 +129,7 @@ def collect(hass: HomeAssistant, since: str | None = None) -> dict[str, Any]:
     for tx in raw:
         if since and (tx.get("date") or "") < since:
             continue
-        reason = own.reason(tx) or ("pair" if tx["id"] in pairs else None)
+        reason = own.reason(tx, tx["_own_iban"]) or ("pair" if tx["id"] in pairs else None)
         item = tx_utils.public(
             tx, account=tx["_account"], bank=tx["_bank"], share=tx["_share"], internal=reason is not None
         )

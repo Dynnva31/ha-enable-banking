@@ -429,3 +429,44 @@ async def test_audit_service_for_admins_only(
             DOMAIN, "audit", {}, blocking=True, return_response=True,
             context=Context(user_id=hass_read_only_user.id),
         )
+
+
+def test_own_iban_on_the_other_side_is_ignored() -> None:
+    from custom_components.enable_banking.transactions import OwnAccounts
+
+    own = OwnAccounts({"ES0000000000000000004321", "ES1111111111111111111111"}, ["Ana García López"])
+    # Ibercaja-style: a salary arrives with the account's own IBAN as "debtor".
+    salary = {"counterparty": None, "counterparty_iban": "ES0000000000000000004321", "amount": 1450.0}
+    assert own.reason(salary, "ES0000000000000000004321") is None
+    # A real transfer from the other connected account still counts.
+    transfer = {"counterparty": None, "counterparty_iban": "ES1111111111111111111111", "amount": 600.0}
+    assert own.reason(transfer, "ES0000000000000000004321") == "iban"
+
+
+def test_card_payments_and_bizum_never_pair() -> None:
+    from custom_components.enable_banking.ledger import match_pairs
+
+    items = [
+        {"id": "a", "_account": "ib", "amount": -50.0, "currency": "EUR", "date": "2026-10-04",
+         "description": "TARJETA VISA MERCADONA"},
+        {"id": "b", "_account": "rv", "amount": 50.0, "currency": "EUR", "date": "2026-10-05",
+         "description": "Bizum payment from: Alex"},
+        {"id": "c", "_account": "tr", "amount": -50.0, "currency": "EUR", "date": "2026-10-05"},
+        {"id": "d", "_account": "rv", "amount": 50.0, "currency": "EUR", "date": "2026-10-06",
+         "description": "Payment from someone", "bank_code": "TOPUP"},
+    ]
+    pairs = match_pairs(items)
+    assert "a" not in pairs and "b" not in pairs
+    assert pairs["c"] == "d"
+
+
+def test_card_top_up_pairs() -> None:
+    from custom_components.enable_banking.ledger import match_pairs
+
+    items = [
+        {"id": "a", "_account": "ib", "amount": -100.0, "currency": "EUR", "date": "2026-10-04",
+         "description": "TARJETA VISA REVOLUT**1234"},
+        {"id": "b", "_account": "rv", "amount": 100.0, "currency": "EUR", "date": "2026-10-04",
+         "description": "Top-Up by *1234", "bank_code": "TOPUP"},
+    ]
+    assert match_pairs(items) == {"a": "b", "b": "a"}

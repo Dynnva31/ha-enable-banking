@@ -132,10 +132,15 @@ class OwnAccounts:
         self._ibans = {i.replace(" ", "").upper() for i in ibans if i}
         self._holders = [w for w in (_words(n) for n in holder_names) if len(w) >= 2]
 
-    def reason(self, tx: dict[str, Any]) -> str | None:
-        """'iban' (a connected account), 'name' (the holder's own name) or None."""
+    def reason(self, tx: dict[str, Any], own_iban: str | None = None) -> str | None:
+        """'iban' (another connected account), 'name' (the holder's own name) or None.
+
+        Some banks (Ibercaja) put the account's own IBAN as the other side of
+        incoming movements; that says nothing about who paid, so it is ignored.
+        """
         iban = (tx.get("counterparty_iban") or "").replace(" ", "").upper()
-        if iban and iban in self._ibans:
+        own = (own_iban or "").replace(" ", "").upper()
+        if iban and iban in self._ibans and iban != own:
             return "iban"
         words = _words(tx.get("counterparty"))
         if not words:
