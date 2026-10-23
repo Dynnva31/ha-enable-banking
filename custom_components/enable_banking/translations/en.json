@@ -81,6 +81,10 @@
           "description": "How many days back."
         }
       }
+    },
+    "read_history": {
+      "name": "Leer historial",
+      "description": "Lee todos los movimientos que los bancos aún guardan. Mejor en la hora siguiente a renovar el acceso."
     }
   }
 }

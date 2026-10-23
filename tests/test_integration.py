@@ -473,3 +473,31 @@ def test_card_top_up_pairs() -> None:
          "description": "Top-Up by *1234", "bank_code": "TOPUP"},
     ]
     assert match_pairs(items) == {"a": "b", "b": "a"}
+
+
+async def test_read_history_service(hass: HomeAssistant, aioclient_mock, pem, hass_admin_user, hass_read_only_user) -> None:
+    from homeassistant.core import Context
+    from homeassistant.exceptions import Unauthorized
+
+    _mock_api(aioclient_mock)
+    await _run_flow(hass, pem)
+    await hass.async_block_till_done()
+
+    # The mock data is all recent, so the other ways of asking are tried too.
+    aioclient_mock.get(f"{API}/accounts/uid-1/transactions", json={"transactions": []})
+
+    result = await hass.services.async_call(
+        DOMAIN, "read_history", {}, blocking=True, return_response=True,
+        context=Context(user_id=hass_admin_user.id),
+    )
+    bank = result["banks"][0]
+    attempts = bank["accounts"][0]["attempts"]
+    assert attempts[0]["way"] == "longest_730" and attempts[0]["read"] >= 1
+    assert [a["way"] for a in attempts] == ["longest_730", "longest", "default_365"]
+    assert IBAN not in str(result)  # masked
+
+    with pytest.raises(Unauthorized):
+        await hass.services.async_call(
+            DOMAIN, "read_history", {}, blocking=True, return_response=True,
+            context=Context(user_id=hass_read_only_user.id),
+        )

@@ -7,3 +7,5 @@ audit:
           min: 1
           max: 1100
           mode: box
+
+read_history:

@@ -9,7 +9,7 @@ last known balance instead of making the sensor unavailable.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -220,6 +220,55 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
                 # Older days may have arrived: rebuild the history again.
                 self._tx["history_done"] = []
             await self._tx_store.async_save(self._tx)
+
+    async def async_read_history(self) -> list[dict[str, Any]]:
+        """Read everything each bank still holds, now.
+
+        Meant for the hour after logging in to the bank, when most banks
+        release movements older than 90 days. Tries a few ways of asking,
+        because banks differ, and reports how far back each one got.
+        """
+        today = dt_util.now().date()
+        short = today - timedelta(days=100)
+        stored_accounts: dict[str, Any] = dict(self._tx.get("accounts") or {})
+        report: list[dict[str, Any]] = []
+        for account in self.accounts:
+            key = account["identification_hash"]
+            currency = account.get("currency") or "EUR"
+            attempts: list[dict[str, Any]] = []
+            ways = (
+                ("longest_730", {"date_from": today - timedelta(days=730), "strategy": "longest"}),
+                ("longest", {"strategy": "longest"}),
+                ("default_365", {"date_from": today - timedelta(days=365)}),
+            )
+            for name, kwargs in ways:
+                try:
+                    raw = await self.client.get_transactions(account["uid"], max_pages=200, **kwargs)
+                except (RateLimited, SessionExpired) as err:
+                    attempts.append({"way": name, "error": str(err)[:200]})
+                    break
+                except EnableBankingError as err:
+                    attempts.append({"way": name, "error": str(err)[:200]})
+                    continue
+                normalized = [t for t in (tx_utils.normalize(r, currency) for r in raw) if t]
+                dates = sorted(t["date"] for t in normalized if t.get("date"))
+                attempts.append({"way": name, "read": len(normalized), "oldest": dates[0] if dates else None})
+                stored_accounts[key] = tx_utils.merge(
+                    stored_accounts.get(key), normalized, today=today, keep_days=TRANSACTIONS_KEEP_DAYS
+                )
+                if dates and date.fromisoformat(dates[0][:10]) < short:
+                    break
+            report.append({
+                "account": mask_iban(account.get("iban")) or key[:8],
+                "currency": currency,
+                "attempts": attempts,
+            })
+
+        self._tx = {**self._tx, "accounts": stored_accounts, "history_done": []}
+        await self._tx_store.async_save(self._tx)
+        await self._async_backfill_history(self.data or {})
+        self.async_update_listeners()
+        return report
 
     async def _async_update_balances(self) -> dict[str, dict[str, Any]]:
         now = dt_util.utcnow()

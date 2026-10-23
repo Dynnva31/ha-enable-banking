@@ -67,6 +67,21 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.services.async_register(
         DOMAIN, "audit", audit, schema=AUDIT_SCHEMA, supports_response=SupportsResponse.ONLY
     )
+
+    async def read_history(call: ServiceCall) -> ServiceResponse:
+        """Read all the history the banks still hold (best within the hour
+        after renewing access). Administrators only."""
+        user = await hass.auth.async_get_user(call.context.user_id) if call.context.user_id else None
+        if user is None or not user.is_admin:
+            raise Unauthorized(context=call.context)
+        banks = []
+        for entry in hass.config_entries.async_loaded_entries(DOMAIN):
+            banks.append({"bank": entry.title, "accounts": await entry.runtime_data.async_read_history()})
+        return {"banks": banks}
+
+    hass.services.async_register(
+        DOMAIN, "read_history", read_history, supports_response=SupportsResponse.OPTIONAL
+    )
     return True
 
 
