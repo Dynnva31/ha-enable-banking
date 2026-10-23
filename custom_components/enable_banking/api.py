@@ -7,7 +7,7 @@ import json
 import re
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -262,3 +262,31 @@ class EnableBankingClient:
             "GET", f"/accounts/{account_uid}/balances", account_call=True
         )
         return data.get("balances", [])
+
+    async def get_transactions(
+        self,
+        account_uid: str,
+        *,
+        date_from: date | None = None,
+        max_pages: int = 25,
+    ) -> list[dict[str, Any]]:
+        """All transactions since date_from, following continuation keys."""
+        transactions: list[dict[str, Any]] = []
+        continuation: str | None = None
+        for _ in range(max_pages):
+            params: dict[str, str] = {}
+            if date_from:
+                params["date_from"] = date_from.isoformat()
+            if continuation:
+                params["continuation_key"] = continuation
+            data = await self._request(
+                "GET",
+                f"/accounts/{account_uid}/transactions",
+                params=params or None,
+                account_call=True,
+            )
+            transactions.extend(data.get("transactions") or [])
+            continuation = data.get("continuation_key")
+            if not continuation:
+                break
+        return transactions

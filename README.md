@@ -29,6 +29,19 @@ Ajustes → Dispositivos y servicios → Añadir integración → **Enable Banki
 
 Repite para cada banco; a partir del segundo ya no pide la clave. El porcentaje se puede cambiar luego en **Configurar**.
 
+## Movimientos
+
+Dos veces al día, junto a una lectura de saldo, la integración lee los movimientos nuevos de cada cuenta (la primera vez, los últimos 90 días) y los guarda en Home Assistant hasta unos 3 años. Los pendientes se sustituyen en cada lectura para que no se dupliquen al contabilizarse.
+
+Se pueden leer con el token de Home Assistant:
+
+```
+GET /api/enable_banking/transactions?since=2026-01-01
+Authorization: Bearer <token de larga duración>
+```
+
+Cada movimiento trae importe con signo (negativo = salida), fecha, contraparte, concepto, estado (`BOOK`/`PDNG`), código MCC si el banco lo envía, el porcentaje de la cuenta que es tuyo y `internal: true` cuando es un traspaso entre tus propias cuentas. El IBAN de la contraparte sale enmascarado.
+
 ## Privacidad
 
 La clave privada y los identificadores de sesión se guardan en la configuración local de Home Assistant. Los saldos solo pasan por Enable Banking (proveedor regulado por la autoridad financiera de Finlandia) y por tu Home Assistant.

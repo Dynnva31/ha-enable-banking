@@ -3,11 +3,11 @@
   "name": "Enable Banking",
   "codeowners": ["@Dynnva31"],
   "config_flow": true,
-  "dependencies": ["file_upload"],
+  "dependencies": ["file_upload", "http"],
   "documentation": "https://github.com/Dynnva31/ha-enable-banking",
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/Dynnva31/ha-enable-banking/issues",
   "requirements": [],
-  "version": "0.1.2"
+  "version": "0.2.0"
 }

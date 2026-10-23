@@ -5,14 +5,25 @@ from __future__ import annotations
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.typing import ConfigType
 
 from .api import EnableBankingClient, InvalidPrivateKey
 from .const import CONF_APP_ID, CONF_PRIVATE_KEY, DOMAIN
 from .coordinator import STORAGE_VERSION, EnableBankingConfigEntry, EnableBankingCoordinator
+from .api_view import TransactionsView
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Expose the stored transactions to authenticated clients (the iPhone app)."""
+    hass.http.register_view(TransactionsView())
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: EnableBankingConfigEntry) -> bool:
@@ -44,5 +55,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: EnableBankingConfigEntr
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: EnableBankingConfigEntry) -> None:
-    """Drop the balance cache when the bank is removed."""
+    """Drop the cached balances and transactions when the bank is removed."""
     await Store(hass, STORAGE_VERSION, f"{DOMAIN}.cache.{entry.entry_id}").async_remove()
+    await Store(hass, STORAGE_VERSION, f"{DOMAIN}.transactions.{entry.entry_id}").async_remove()

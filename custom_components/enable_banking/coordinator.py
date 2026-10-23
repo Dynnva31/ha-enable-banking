@@ -9,7 +9,7 @@ last known balance instead of making the sensor unavailable.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -27,12 +27,17 @@ from .api import (
     SessionExpired,
     pick_balance,
 )
+from . import transactions as tx_utils
 from .const import (
     CACHE_REUSE_ON_START,
     CONF_ACCOUNTS,
     CONF_ASPSP_NAME,
     CONF_VALID_UNTIL,
     DOMAIN,
+    TRANSACTIONS_INITIAL_DAYS,
+    TRANSACTIONS_INTERVAL,
+    TRANSACTIONS_KEEP_DAYS,
+    TRANSACTIONS_OVERLAP_DAYS,
     UPDATE_INTERVAL,
 )
 
@@ -70,6 +75,10 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
             hass, STORAGE_VERSION, f"{DOMAIN}.cache.{entry.entry_id}"
         )
         self._cache: dict[str, Any] = {}
+        self._tx_store: Store[dict[str, Any]] = Store(
+            hass, STORAGE_VERSION, f"{DOMAIN}.transactions.{entry.entry_id}"
+        )
+        self._tx: dict[str, Any] = {}
         self._started = False
 
     @property
@@ -80,10 +89,71 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
     def consent_valid_until(self) -> datetime | None:
         return dt_util.parse_datetime(self.config_entry.data.get(CONF_VALID_UNTIL, ""))
 
+    @property
+    def transactions_fetched_at(self) -> datetime | None:
+        return dt_util.parse_datetime(self._tx.get("fetched_at", ""))
+
+    def account_transactions(self, key: str) -> list[dict[str, Any]]:
+        """Pending first, then booked, newest first."""
+        stored = (self._tx.get("accounts") or {}).get(key) or {}
+        booked = sorted(
+            (stored.get("booked") or {}).values(),
+            key=lambda t: (t.get("date") or "", t.get("transaction_date") or ""),
+            reverse=True,
+        )
+        return list(stored.get("pending") or []) + booked
+
     async def _async_setup(self) -> None:
         self._cache = await self._store.async_load() or {}
+        self._tx = await self._tx_store.async_load() or {}
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
+        data = await self._async_update_balances()
+        await self._async_update_transactions()
+        return data
+
+    async def _async_update_transactions(self) -> None:
+        """Read new transactions twice a day; failures keep what is stored."""
+        now = dt_util.utcnow()
+        fetched_at = self.transactions_fetched_at
+        if fetched_at and now - fetched_at < TRANSACTIONS_INTERVAL:
+            return
+
+        today = dt_util.now().date()
+        stored_accounts: dict[str, Any] = dict(self._tx.get("accounts") or {})
+        updated = 0
+        for account in self.accounts:
+            key = account["identification_hash"]
+            last = tx_utils.last_booked_date(stored_accounts.get(key))
+            date_from = (
+                last - timedelta(days=TRANSACTIONS_OVERLAP_DAYS)
+                if last
+                else today - timedelta(days=TRANSACTIONS_INITIAL_DAYS)
+            )
+            try:
+                try:
+                    raw = await self.client.get_transactions(account["uid"], date_from=date_from)
+                except (RateLimited, CannotConnect, SessionExpired):
+                    raise
+                except EnableBankingError:
+                    # Some banks reject a start date they consider too old.
+                    raw = await self.client.get_transactions(account["uid"])
+            except (RateLimited, CannotConnect, EnableBankingError) as err:
+                _LOGGER.warning("No se pudieron leer los movimientos de %s: %s", account.get("iban") or key, err)
+                continue
+
+            currency = account.get("currency") or "EUR"
+            normalized = [t for t in (tx_utils.normalize(r, currency) for r in raw) if t]
+            stored_accounts[key] = tx_utils.merge(
+                stored_accounts.get(key), normalized, today=today, keep_days=TRANSACTIONS_KEEP_DAYS
+            )
+            updated += 1
+
+        if updated:
+            self._tx = {"fetched_at": now.isoformat(), "accounts": stored_accounts}
+            await self._tx_store.async_save(self._tx)
+
+    async def _async_update_balances(self) -> dict[str, dict[str, Any]]:
         now = dt_util.utcnow()
         cached: dict[str, dict[str, Any]] = self._cache.get("accounts", {})
         wanted = {a["identification_hash"] for a in self.accounts}
@@ -164,3 +234,4 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
 
     async def async_remove_cache(self) -> None:
         await self._store.async_remove()
+        await self._tx_store.async_remove()

@@ -45,8 +45,34 @@ def _mock_api(aioclient_mock, *, balances_status=200):
             "access": {"valid_until": (dt_util.utcnow() + timedelta(days=170)).isoformat()},
             "accounts": [{
                 "uid": "uid-1", "identification_hash": "hash-1", "currency": "EUR",
-                "account_id": {"iban": IBAN}, "name": "Cuenta compartida",
+                "account_id": {"iban": IBAN}, "name": "Ana García López",
             }],
+        },
+    )
+    # Most specific mock first: the mock matches on a subset of the query.
+    aioclient_mock.get(
+        f"{API}/accounts/uid-1/transactions",
+        params={"date_from": (dt_util.now().date() - timedelta(days=89)).isoformat(), "continuation_key": "page2"},
+        json={"transactions": [
+            {"transaction_amount": {"currency": "EUR", "amount": "12.00"}, "credit_debit_indicator": "DBIT",
+             "status": "PDNG", "booking_date": "2026-10-23", "creditor": {"name": "SPOTIFY"}},
+        ]},
+    )
+    aioclient_mock.get(
+        f"{API}/accounts/uid-1/transactions",
+        params={"date_from": (dt_util.now().date() - timedelta(days=89)).isoformat()},
+        json={
+            "transactions": [
+                {"entry_reference": "e1", "transaction_amount": {"currency": "EUR", "amount": "54.20"},
+                 "credit_debit_indicator": "DBIT", "status": "BOOK", "booking_date": "2026-10-20",
+                 "creditor": {"name": "MERCADONA S.A."}, "remittance_information": ["COMPRA TARJ. MERCADONA"],
+                 "merchant_category_code": "5411"},
+                {"transaction_amount": {"currency": "EUR", "amount": "300.00"},
+                 "credit_debit_indicator": "CRDT", "status": "BOOK", "booking_date": "2026-10-21",
+                 "debtor": {"name": "García López Ana"}, "debtor_account": {"iban": "ES7600000000000000000001"},
+                 "remittance_information": ["Traspaso"]},
+            ],
+            "continuation_key": "page2",
         },
     )
     if balances_status == 200:
@@ -191,6 +217,55 @@ async def test_missing_key_error(hass: HomeAssistant, aioclient_mock, pem) -> No
         result["flow_id"], {"private_key": "not a key", "app_id": APP_ID}
     )
     assert result["errors"] == {"base": "invalid_key"}
+
+
+async def test_transactions_endpoint(hass: HomeAssistant, aioclient_mock, pem, hass_client) -> None:
+    _mock_api(aioclient_mock)
+    result = await _run_flow(hass, pem, share=50)
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+
+    client = await hass_client()
+    resp = await client.get("/api/enable_banking/transactions")
+    assert resp.status == 200
+    body = await resp.json()
+    assert body["accounts"][0]["share_percent"] == 50.0
+    assert body["accounts"][0]["entity_id"].startswith("sensor.")
+    txs = body["transactions"]
+    assert [t["status"] for t in txs] == ["PDNG", "BOOK", "BOOK"]
+    assert txs[0]["amount"] == -12.0 and txs[0]["counterparty"] == "SPOTIFY"
+    assert txs[1]["amount"] == 300.0 and txs[1]["internal"] is True
+    assert txs[1]["counterparty_iban"] == "ES76 •••• 0001"
+    assert txs[2]["amount"] == -54.2 and txs[2]["internal"] is False and txs[2]["mcc"] == "5411"
+    assert txs[2]["id"] == "r:e1"
+
+    resp = await client.get("/api/enable_banking/transactions?since=2026-10-21")
+    assert len((await resp.json())["transactions"]) == 2
+    resp = await client.get("/api/enable_banking/transactions?since=nope")
+    assert resp.status == 400
+
+    # A second refresh inside the interval does not read transactions again.
+    calls = sum(1 for c in aioclient_mock.mock_calls if "/transactions" in str(c[1]))
+    await result["result"].runtime_data.async_refresh()
+    assert sum(1 for c in aioclient_mock.mock_calls if "/transactions" in str(c[1])) == calls
+
+
+def test_merge_replaces_pending():
+    from datetime import date
+
+    from custom_components.enable_banking import transactions as t
+
+    booked = t.normalize({"entry_reference": "a", "transaction_amount": {"amount": "5"},
+                          "credit_debit_indicator": "DBIT", "booking_date": "2026-10-01"}, "EUR")
+    pending = t.normalize({"transaction_amount": {"amount": "7"}, "credit_debit_indicator": "DBIT",
+                           "status": "PDNG", "booking_date": "2026-10-02"}, "EUR")
+    first = t.merge(None, [booked, pending], today=date(2026, 10, 3), keep_days=1100)
+    assert len(first["booked"]) == 1 and len(first["pending"]) == 1
+    second = t.merge(first, [], today=date(2026, 10, 3), keep_days=1100)
+    assert len(second["booked"]) == 1 and second["pending"] == []
+    assert t.last_booked_date(second) == date(2026, 10, 1)
+    old = t.merge(first, [], today=date(2030, 1, 1), keep_days=30)
+    assert old["booked"] == {}
 
 
 def test_account_label_product_codes():

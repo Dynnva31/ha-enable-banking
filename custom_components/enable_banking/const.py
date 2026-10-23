@@ -33,6 +33,16 @@ CACHE_REUSE_ON_START: Final = timedelta(hours=5, minutes=45)
 
 MAX_CONSENT: Final = timedelta(days=180)
 
+# Transactions are read twice a day, alongside a balance read, to stay well
+# inside the daily access limit some banks apply across all account endpoints.
+TRANSACTIONS_INTERVAL: Final = timedelta(hours=11, minutes=30)
+# First read: most banks only give 90 days without a fresh login.
+TRANSACTIONS_INITIAL_DAYS: Final = 89
+# Later reads overlap the last booked day to catch late bookings.
+TRANSACTIONS_OVERLAP_DAYS: Final = 5
+# Booked transactions older than this are dropped from storage.
+TRANSACTIONS_KEEP_DAYS: Final = 1100
+
 # Booked balance first: that is the number that belongs in a net-worth total.
 BALANCE_TYPE_PREFERENCE: Final = ("CLBD", "ITBD", "CLAV", "ITAV", "XPCD")
 
