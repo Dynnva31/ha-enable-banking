@@ -111,6 +111,8 @@ async def test_full_flow_and_sensor(hass: HomeAssistant, aioclient_mock, pem) ->
     assert state.attributes["my_share"] == 617.28
     assert state.attributes["share_percent"] == 50.0
     assert state.attributes["iban"] == "ES12 •••• 9012"
+    assert state.attributes["bank"] == "Ibercaja Banco"
+    assert state.attributes["account"] == "Cuenta ··9012"
     assert state.attributes["unit_of_measurement"] == "EUR"
 
     # The JWT is signed with the uploaded key and carries the app id as kid.

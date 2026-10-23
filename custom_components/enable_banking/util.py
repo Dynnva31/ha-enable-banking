@@ -15,6 +15,8 @@ def mask_iban(iban: str | None) -> str | None:
 
 def account_label(account: dict[str, Any]) -> str:
     """Short human name such as 'Cuenta ··1234'."""
-    base = account.get("name") or account.get("product") or "Cuenta"
+    # The account "name" banks send is usually the holder's name, so prefer the
+    # product name and otherwise a neutral word.
+    base = account.get("product") or "Cuenta"
     iban = (account.get("iban") or "").replace(" ", "")
     return f"{base} ··{iban[-4:]}" if len(iban) >= 4 else base

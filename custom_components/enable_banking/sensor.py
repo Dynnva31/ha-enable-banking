@@ -103,6 +103,8 @@ class AccountBalanceSensor(_BankEntity, SensorEntity):
         share = self.share_percent
         valid_until = self.coordinator.consent_valid_until
         return {
+            "bank": self.coordinator.config_entry.data[CONF_ASPSP_NAME],
+            "account": account_label(self._account),
             "iban": mask_iban(self._account.get("iban")),
             "currency": data.get("currency") or self._account.get("currency"),
             ATTR_SHARE_PERCENT: share,
@@ -135,3 +137,7 @@ class ConsentExpirySensor(_BankEntity, SensorEntity):
     @property
     def native_value(self) -> datetime | None:
         return self.coordinator.consent_valid_until
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"bank": self.coordinator.config_entry.data[CONF_ASPSP_NAME]}
