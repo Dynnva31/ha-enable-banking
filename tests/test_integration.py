@@ -368,3 +368,17 @@ async def test_reconfigure_offers_a_new_login(hass: HomeAssistant, aioclient_moc
         result["flow_id"], {"redirect_url": f"https://localhost/?state={flow._state}&code=abc"}
     )
     assert result["type"] is FlowResultType.ABORT and result["reason"] == "reconfigure_successful"
+
+
+def test_own_accounts_and_bank_code() -> None:
+    from custom_components.enable_banking.transactions import OwnAccounts, bank_code
+
+    own = OwnAccounts({"ES0000000000000000004321"}, ["Ana María García López", "Cuenta corriente"])
+    assert own.is_internal({"counterparty": "GARCIA LOPEZ ANA MARIA"})
+    assert own.is_internal({"counterparty": "Ana García López"})  # three words in common
+    assert not own.is_internal({"counterparty": "Ana García"})
+    assert not own.is_internal({"counterparty": "Mercadona"})
+    assert own.is_internal({"counterparty": None, "counterparty_iban": "ES00 0000 0000 0000 0000 4321"})
+    assert bank_code("ES91 1544 0000 1234 5678 9012") == "1544"
+    assert bank_code("DE89370400440532013000") == "37040044"
+    assert bank_code(None) is None and bank_code("ES12") is None

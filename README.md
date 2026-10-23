@@ -42,7 +42,7 @@ GET /api/enable_banking/transactions?since=2026-01-01
 Authorization: Bearer <token de larga duración>
 ```
 
-Cada movimiento trae importe con signo (negativo = salida), fecha, contraparte, concepto, estado (`BOOK`/`PDNG`), código MCC si el banco lo envía, el porcentaje de la cuenta que es tuyo y `internal: true` cuando es un traspaso entre tus propias cuentas. El IBAN de la contraparte sale enmascarado.
+Cada movimiento trae importe con signo (negativo = salida), fecha, contraparte, concepto, estado (`BOOK`/`PDNG`), código MCC si el banco lo envía, el porcentaje de la cuenta que es tuyo y `internal: true` cuando es un traspaso entre tus propias cuentas. El IBAN de la contraparte sale enmascarado; `counterparty_bank` da solo el código de su banco (p. ej. `1544`), que sirve para reconocer traspasos a tu bróker. Un traspaso a tu propio nombre en un banco no conectado también cuenta como `internal`.
 
 ## Historial desde el primer día
 

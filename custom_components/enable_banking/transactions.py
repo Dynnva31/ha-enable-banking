@@ -115,8 +115,18 @@ def _words(name: str | None) -> set[str]:
     return {w for w in re.split(r"[^A-Z]+", plain) if len(w) > 1}
 
 
+def bank_code(iban: str | None) -> str | None:
+    """The bank part of an IBAN (it names the bank, not the customer):
+    'ES91 1544 …' -> '1544'; German IBANs carry an 8-digit code."""
+    compact = (iban or "").replace(" ", "").upper()
+    if len(compact) < 12 or not compact[:2].isalpha():
+        return None
+    return compact[4:12] if compact[:2] == "DE" else compact[4:8]
+
+
 class OwnAccounts:
-    """Recognises transfers between the user's own accounts."""
+    """Recognises transfers between the user's own accounts, also to banks
+    that are not connected (the holder's own name on the other side)."""
 
     def __init__(self, ibans: set[str], holder_names: list[str | None]) -> None:
         self._ibans = {i.replace(" ", "").upper() for i in ibans if i}
@@ -127,7 +137,15 @@ class OwnAccounts:
         if iban and iban in self._ibans:
             return True
         words = _words(tx.get("counterparty"))
-        return bool(words) and any(holder <= words for holder in self._holders)
+        if not words:
+            return False
+        for holder in self._holders:
+            if holder <= words:
+                return True
+            # "Daniel Val Trull" for "Daniel Enric Val Trull": three words in common.
+            if len(holder) >= 3 and len(holder & words) >= 3:
+                return True
+        return False
 
 
 def public(tx: dict[str, Any], *, account: str | None, bank: str, share: float, internal: bool) -> dict[str, Any]:
@@ -142,6 +160,7 @@ def public(tx: dict[str, Any], *, account: str | None, bank: str, share: float, 
         "currency": tx.get("currency"),
         "counterparty": tx.get("counterparty"),
         "counterparty_iban": mask_iban(tx.get("counterparty_iban")),
+        "counterparty_bank": bank_code(tx.get("counterparty_iban")),
         "description": tx.get("description"),
         "status": tx.get("status"),
         "mcc": tx.get("mcc"),
