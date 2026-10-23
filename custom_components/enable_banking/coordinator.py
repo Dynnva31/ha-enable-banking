@@ -28,6 +28,7 @@ from .api import (
     pick_balance,
 )
 from . import transactions as tx_utils
+from .util import mask_iban
 from .const import (
     CACHE_REUSE_ON_START,
     CONF_ACCOUNTS,
@@ -139,7 +140,7 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
                     # Some banks reject a start date they consider too old.
                     raw = await self.client.get_transactions(account["uid"])
             except (RateLimited, CannotConnect, EnableBankingError) as err:
-                _LOGGER.warning("No se pudieron leer los movimientos de %s: %s", account.get("iban") or key, err)
+                _LOGGER.warning("No se pudieron leer los movimientos de %s: %s", mask_iban(account.get("iban")) or key[:8], err)
                 continue
 
             currency = account.get("currency") or "EUR"
@@ -184,7 +185,7 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
                 raise ConfigEntryAuthFailed(str(err)) from err
             except (RateLimited, CannotConnect, EnableBankingError) as err:
                 _LOGGER.warning(
-                    "No se pudo leer la cuenta %s: %s", account.get("iban") or key, err
+                    "No se pudo leer la cuenta %s: %s", mask_iban(account.get("iban")) or key[:8], err
                 )
                 failures.append(str(err))
                 if key in cached:

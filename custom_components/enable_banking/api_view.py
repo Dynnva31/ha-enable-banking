@@ -1,7 +1,9 @@
 """Read-only JSON endpoint with the stored transactions of every bank.
 
 GET /api/enable_banking/transactions?since=YYYY-MM-DD
-Authenticated like the rest of the Home Assistant API (long-lived token).
+Authenticated like the rest of the Home Assistant API (long-lived token) and
+limited to the owner of the Home Assistant instance: other users, even admins,
+get 403.
 """
 
 from __future__ import annotations
@@ -25,6 +27,10 @@ class TransactionsView(HomeAssistantView):
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
+        user = request.get("hass_user")
+        if user is None or not user.is_owner:
+            return self.json_message("Solo el propietario de Home Assistant", 403)
+
         hass = request.app[KEY_HASS]
         since = request.query.get("since")
         if since:

@@ -33,7 +33,7 @@ Repite para cada banco; a partir del segundo ya no pide la clave. El porcentaje 
 
 Dos veces al día, junto a una lectura de saldo, la integración lee los movimientos nuevos de cada cuenta (la primera vez, los últimos 90 días) y los guarda en Home Assistant hasta unos 3 años. Los pendientes se sustituyen en cada lectura para que no se dupliquen al contabilizarse.
 
-Se pueden leer con el token de Home Assistant:
+Se pueden leer con un token de larga duración del **propietario** de Home Assistant (otros usuarios reciben 403):
 
 ```
 GET /api/enable_banking/transactions?since=2026-01-01

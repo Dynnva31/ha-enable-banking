@@ -219,13 +219,21 @@ async def test_missing_key_error(hass: HomeAssistant, aioclient_mock, pem) -> No
     assert result["errors"] == {"base": "invalid_key"}
 
 
-async def test_transactions_endpoint(hass: HomeAssistant, aioclient_mock, pem, hass_client) -> None:
+async def test_transactions_endpoint(
+    hass: HomeAssistant, aioclient_mock, pem, hass_client, hass_owner_user
+) -> None:
     _mock_api(aioclient_mock)
     result = await _run_flow(hass, pem, share=50)
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
 
-    client = await hass_client()
+    # Admins that are not the owner are refused.
+    admin = await hass_client()
+    resp = await admin.get("/api/enable_banking/transactions")
+    assert resp.status == 403
+
+    refresh = await hass.auth.async_create_refresh_token(hass_owner_user, "https://example.com/app")
+    client = await hass_client(hass.auth.async_create_access_token(refresh))
     resp = await client.get("/api/enable_banking/transactions")
     assert resp.status == 200
     body = await resp.json()
