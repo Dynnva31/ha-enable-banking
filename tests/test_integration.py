@@ -333,7 +333,10 @@ async def test_new_login_reads_two_years(hass: HomeAssistant, aioclient_mock, pe
     two_years = (dt_util.now().date() - timedelta(days=730)).isoformat()
 
     def deep_reads() -> int:
-        return sum(1 for c in aioclient_mock.mock_calls if "/transactions" in str(c[1]) and f"date_from={two_years}" in str(c[1]))
+        return sum(
+            1 for c in aioclient_mock.mock_calls
+            if "/transactions" in str(c[1]) and f"date_from={two_years}" in str(c[1]) and "strategy=longest" in str(c[1])
+        )
 
     first = deep_reads()
     assert first >= 1  # the first connection also asks for two years

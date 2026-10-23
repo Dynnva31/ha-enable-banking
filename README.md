@@ -29,11 +29,13 @@ Ajustes → Dispositivos y servicios → Añadir integración → **Enable Banki
 
 Repite para cada banco; a partir del segundo ya no pide la clave. El porcentaje se puede cambiar luego en **Configurar**.
 
+Para añadir otra cuenta de un banco ya conectado (otra divisa, una compartida): vincúlala primero en el panel de Enable Banking y luego **Reconfigurar** ese banco. Una cuenta sin vincular no llega a Home Assistant aunque la marques en el banco.
+
 ## Movimientos
 
 Dos veces al día, junto a una lectura de saldo, la integración lee los movimientos nuevos de cada cuenta y los guarda en Home Assistant hasta unos 3 años. Los pendientes se sustituyen en cada lectura para que no se dupliquen al contabilizarse.
 
-Justo después de entrar en el banco (al conectarlo o al renovarlo) pide hasta 2 años de movimientos: por PSD2, muchos bancos solo dan lo anterior a 90 días en los minutos siguientes a identificarte (Revolut, 5 minutos). Para conseguirlo más tarde, o para renovar el acceso antes de que caduque: **Ajustes → Dispositivos y servicios → Enable Banking → ⋮ del banco → Reconfigurar**, y abre el enlace del banco enseguida.
+Justo después de entrar en el banco (al conectarlo o al renovarlo) pide todo el historial que el banco aún tenga (`strategy=longest`): por PSD2, muchos bancos solo dan lo anterior a 90 días en los minutos siguientes a identificarte. Para conseguirlo más tarde, o para renovar el acceso antes de que caduque: **Ajustes → Dispositivos y servicios → Enable Banking → ⋮ del banco → Reconfigurar**, y abre el enlace del banco enseguida.
 
 Se pueden leer con un token de larga duración del **propietario** de Home Assistant (otros usuarios reciben 403):
 

@@ -268,15 +268,23 @@ class EnableBankingClient:
         account_uid: str,
         *,
         date_from: date | None = None,
+        strategy: str | None = None,
         max_pages: int = 25,
     ) -> list[dict[str, Any]]:
-        """All transactions since date_from, following continuation keys."""
+        """All transactions since date_from, following continuation keys.
+
+        With strategy "longest" the bank is asked for everything it still
+        holds (date_from is only a hint), instead of an error when the
+        period asked for is longer than it allows.
+        """
         transactions: list[dict[str, Any]] = []
         continuation: str | None = None
         for _ in range(max_pages):
             params: dict[str, str] = {}
             if date_from:
                 params["date_from"] = date_from.isoformat()
+            if strategy:
+                params["strategy"] = strategy
             if continuation:
                 params["continuation_key"] = continuation
             data = await self._request(

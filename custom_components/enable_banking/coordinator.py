@@ -182,11 +182,21 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
                 date_from = today - timedelta(days=TRANSACTIONS_INITIAL_DAYS)
             try:
                 try:
-                    raw = await self.client.get_transactions(account["uid"], date_from=date_from)
+                    if fresh_login:
+                        # Everything the bank still holds; the start date is a hint.
+                        raw = await self.client.get_transactions(
+                            account["uid"], date_from=date_from, strategy="longest", max_pages=200
+                        )
+                    else:
+                        raw = await self.client.get_transactions(account["uid"], date_from=date_from)
                 except (RateLimited, CannotConnect, SessionExpired):
                     raise
-                except EnableBankingError:
+                except EnableBankingError as err:
                     # Some banks reject a start date they consider too old.
+                    _LOGGER.warning(
+                        "%s no da movimientos desde %s (%s); se leen los recientes",
+                        mask_iban(account.get("iban")) or key[:8], date_from, str(err)[:200],
+                    )
                     raw = await self.client.get_transactions(account["uid"])
             except (RateLimited, CannotConnect, EnableBankingError) as err:
                 _LOGGER.warning("No se pudieron leer los movimientos de %s: %s", mask_iban(account.get("iban")) or key[:8], err)
