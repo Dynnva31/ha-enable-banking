@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
+import voluptuous as vol
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
+from homeassistant.exceptions import ConfigEntryNotReady, Unauthorized
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.util import dt as dt_util
+
+from . import ledger
 
 from .api import EnableBankingClient, InvalidPrivateKey
 from .const import CONF_APP_ID, CONF_PRIVATE_KEY, DOMAIN
@@ -20,9 +26,47 @@ PLATFORMS: list[Platform] = [Platform.SENSOR]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
+AUDIT_SCHEMA = vol.Schema({vol.Optional("days", default=120): vol.All(int, vol.Range(min=1, max=1100))})
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Expose the stored transactions to authenticated clients (the iPhone app)."""
     hass.http.register_view(TransactionsView())
+
+    async def audit(call: ServiceCall) -> ServiceResponse:
+        """Movements with how each one was classified, to check that no
+        transfer between your own accounts counts as income or spending.
+        Administrators only (they can already read the stored files)."""
+        user = await hass.auth.async_get_user(call.context.user_id) if call.context.user_id else None
+        if user is None or not user.is_admin:
+            raise Unauthorized(context=call.context)
+        since = (dt_util.now().date() - timedelta(days=call.data["days"])).isoformat()
+        data = ledger.collect(hass, since)
+        return {
+            "accounts": [
+                {"account": a["entity_id"], "bank": a["bank"], "share_percent": a["share_percent"]}
+                for a in data["accounts"]
+            ],
+            "transactions": [
+                {
+                    "date": t["date"],
+                    "account": t["account"],
+                    "amount": t["amount"],
+                    "status": t["status"],
+                    "counterparty": t["counterparty"],
+                    "counterparty_bank": t.get("counterparty_bank"),
+                    "description": t["description"],
+                    "bank_code": t["bank_code"],
+                    "mcc": t["mcc"],
+                    "internal": t.get("internal_reason"),
+                }
+                for t in data["transactions"]
+            ],
+        }
+
+    hass.services.async_register(
+        DOMAIN, "audit", audit, schema=AUDIT_SCHEMA, supports_response=SupportsResponse.ONLY
+    )
     return True
 
 

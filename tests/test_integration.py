@@ -382,3 +382,50 @@ def test_own_accounts_and_bank_code() -> None:
     assert bank_code("ES91 1544 0000 1234 5678 9012") == "1544"
     assert bank_code("DE89370400440532013000") == "37040044"
     assert bank_code(None) is None and bank_code("ES12") is None
+
+
+def test_match_pairs_finds_transfers_between_accounts() -> None:
+    from custom_components.enable_banking.ledger import match_pairs
+
+    items = [
+        {"id": "a", "_account": "tr", "amount": -600.0, "currency": "EUR", "date": "2026-10-04"},
+        {"id": "b", "_account": "ib", "amount": 600.0, "currency": "EUR", "date": "2026-10-06"},
+        {"id": "c", "_account": "ib", "amount": 600.0, "currency": "EUR", "date": "2026-10-20"},  # too late
+        {"id": "d", "_account": "rv", "amount": -25.0, "currency": "EUR", "date": "2026-10-05"},
+        {"id": "e", "_account": "rv", "amount": 25.0, "currency": "EUR", "date": "2026-10-05"},  # same account
+        {"id": "f", "_account": "tr", "amount": -50.0, "currency": "EUR", "date": "2026-10-10"},
+        {"id": "g", "_account": "rv", "amount": 50.0, "currency": "EUR", "date": "2026-10-13"},
+        {"id": "h", "_account": "ib", "amount": 50.0, "currency": "EUR", "date": "2026-10-11"},  # closer one wins
+    ]
+    pairs = match_pairs(items)
+    assert pairs["a"] == "b" and pairs["b"] == "a"
+    assert "c" not in pairs and "d" not in pairs and "e" not in pairs
+    assert pairs["f"] == "h" and "g" not in pairs
+
+
+async def test_audit_service_for_admins_only(
+    hass: HomeAssistant, aioclient_mock, pem, hass_admin_user, hass_read_only_user
+) -> None:
+    from homeassistant.core import Context
+    from homeassistant.exceptions import Unauthorized
+
+    _mock_api(aioclient_mock)
+    await _run_flow(hass, pem)
+    await hass.async_block_till_done()
+
+    result = await hass.services.async_call(
+        DOMAIN, "audit", {"days": 1100}, blocking=True, return_response=True,
+        context=Context(user_id=hass_admin_user.id),
+    )
+    txs = result["transactions"]
+    assert txs and all("internal" in t for t in txs)
+    # The 300 € from the holder's own name counts as a transfer between own accounts.
+    own = [t for t in txs if t["amount"] == 300.0]
+    assert own and own[0]["internal"] == "name"
+    assert "iban" not in str(result).lower() or "ES12" not in str(result)
+
+    with pytest.raises(Unauthorized):
+        await hass.services.async_call(
+            DOMAIN, "audit", {}, blocking=True, return_response=True,
+            context=Context(user_id=hass_read_only_user.id),
+        )

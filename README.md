@@ -44,6 +44,10 @@ Authorization: Bearer <token de larga duración>
 
 Cada movimiento trae importe con signo (negativo = salida), fecha, contraparte, concepto, estado (`BOOK`/`PDNG`), código MCC si el banco lo envía, el porcentaje de la cuenta que es tuyo y `internal: true` cuando es un traspaso entre tus propias cuentas. El IBAN de la contraparte sale enmascarado; `counterparty_bank` da solo el código de su banco (p. ej. `1544`), que sirve para reconocer traspasos a tu bróker. Un traspaso a tu propio nombre en un banco no conectado también cuenta como `internal`.
 
+`internal` es `true` cuando el movimiento es un traspaso entre tus cuentas: la otra parte es una cuenta conectada (IBAN), lleva tu nombre (cuenta en un banco no conectado, como un bróker) o tiene su pareja en otra cuenta conectada (mismo importe y moneda, como mucho 4 días de diferencia: recargas con tarjeta, traspasos sin nombre). `internal_reason` dice cuál de las tres (`iban`, `name`, `pair`).
+
+Para revisar la clasificación, el servicio `enable_banking.audit` (solo administradores, devuelve respuesta) lista los movimientos de los últimos N días con su motivo.
+
 ## Historial desde el primer día
 
 Home Assistant solo guarda un saldo desde que se añade la integración. Para que los gráficos no empiecen vacíos, la integración reconstruye una vez el saldo de cierre de cada día anterior a partir de los movimientos ya leídos: parte del saldo de hoy y deshace cada movimiento. Esos días se importan como estadísticas del sensor de saldo, solo antes de la primera estadística que ya existe, así que no se sobrescribe nada medido. Tras una renovación con movimientos más antiguos, se añaden los días que faltan por delante. Todo ocurre dentro de Home Assistant.

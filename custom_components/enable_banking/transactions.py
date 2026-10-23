@@ -132,20 +132,24 @@ class OwnAccounts:
         self._ibans = {i.replace(" ", "").upper() for i in ibans if i}
         self._holders = [w for w in (_words(n) for n in holder_names) if len(w) >= 2]
 
-    def is_internal(self, tx: dict[str, Any]) -> bool:
+    def reason(self, tx: dict[str, Any]) -> str | None:
+        """'iban' (a connected account), 'name' (the holder's own name) or None."""
         iban = (tx.get("counterparty_iban") or "").replace(" ", "").upper()
         if iban and iban in self._ibans:
-            return True
+            return "iban"
         words = _words(tx.get("counterparty"))
         if not words:
-            return False
+            return None
         for holder in self._holders:
             if holder <= words:
-                return True
+                return "name"
             # "Daniel Val Trull" for "Daniel Enric Val Trull": three words in common.
             if len(holder) >= 3 and len(holder & words) >= 3:
-                return True
-        return False
+                return "name"
+        return None
+
+    def is_internal(self, tx: dict[str, Any]) -> bool:
+        return self.reason(tx) is not None
 
 
 def public(tx: dict[str, Any], *, account: str | None, bank: str, share: float, internal: bool) -> dict[str, Any]:

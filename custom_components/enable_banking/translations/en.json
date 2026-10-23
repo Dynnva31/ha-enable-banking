@@ -70,5 +70,17 @@
         "data": {}
       }
     }
+  },
+  "services": {
+    "audit": {
+      "name": "Review transactions",
+      "description": "Returns the transactions and how each one was classified (transfer between your own accounts or not). Administrators only.",
+      "fields": {
+        "days": {
+          "name": "Days",
+          "description": "How many days back."
+        }
+      }
+    }
   }
 }

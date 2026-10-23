@@ -70,5 +70,17 @@
         "data": {}
       }
     }
+  },
+  "services": {
+    "audit": {
+      "name": "Revisar movimientos",
+      "description": "Devuelve los movimientos y cómo se ha clasificado cada uno (traspaso entre tus cuentas o no). Solo administradores.",
+      "fields": {
+        "days": {
+          "name": "Días",
+          "description": "Cuántos días hacia atrás."
+        }
+      }
+    }
   }
 }
