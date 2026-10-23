@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import timedelta
 
 import voluptuous as vol
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
-from homeassistant.exceptions import ConfigEntryNotReady, Unauthorized
-from homeassistant.helpers import config_validation as cv
+from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError, Unauthorized
+from homeassistant.helpers import config_validation as cv, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
@@ -26,6 +27,10 @@ PLATFORMS: list[Platform] = [Platform.SENSOR]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
+IMPORT_SCHEMA = vol.Schema({
+    vol.Required("account"): cv.entity_id,
+    vol.Required("transactions"): vol.All(cv.ensure_list, vol.Length(max=20000), [dict]),
+})
 AUDIT_SCHEMA = vol.Schema({vol.Optional("days", default=120): vol.All(int, vol.Range(min=1, max=1100))})
 
 
@@ -81,6 +86,25 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     hass.services.async_register(
         DOMAIN, "read_history", read_history, supports_response=SupportsResponse.OPTIONAL
+    )
+
+    async def import_statement(call: ServiceCall) -> ServiceResponse:
+        """Movements from a bank statement (CSV export) for the days the bank
+        no longer gives. Administrators only."""
+        user = await hass.auth.async_get_user(call.context.user_id) if call.context.user_id else None
+        if user is None or not user.is_admin:
+            raise Unauthorized(context=call.context)
+        registry = er.async_get(hass)
+        entity = registry.async_get(call.data["account"])
+        entry = hass.config_entries.async_get_entry(entity.config_entry_id) if entity else None
+        if entity is None or entry is None or entry.domain != DOMAIN or entry.state is not ConfigEntryState.LOADED:
+            raise ServiceValidationError(f"{call.data['account']} no es una cuenta de Enable Banking")
+        prefix = f"{entry.unique_id or entry.entry_id}_"
+        key = entity.unique_id[len(prefix):] if entity.unique_id.startswith(prefix) else entity.unique_id
+        return await entry.runtime_data.async_import_statement(key, call.data["transactions"])
+
+    hass.services.async_register(
+        DOMAIN, "import_statement", import_statement, schema=IMPORT_SCHEMA, supports_response=SupportsResponse.OPTIONAL
     )
     return True
 

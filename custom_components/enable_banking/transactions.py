@@ -98,6 +98,42 @@ def merge(
     return {"booked": booked, "pending": pending}
 
 
+def from_statement(rows: list[dict[str, Any]], currency: str, before: str | None) -> list[dict[str, Any]]:
+    """Movements copied from a bank statement (a CSV export), for the days
+    the bank no longer hands out. Only days before `before` (the first
+    movement already stored) are kept, so nothing is counted twice. Ids are
+    stable, so importing the same statement again changes nothing."""
+    result: list[dict[str, Any]] = []
+    seen: dict[str, int] = {}
+    for row in rows:
+        day = str(row.get("date") or "")[:10]
+        try:
+            date.fromisoformat(day)
+            amount = round(float(row["amount"]), 2)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if before and day >= before:
+            continue
+        tx = {
+            "date": day,
+            "transaction_date": None,
+            "amount": amount,
+            "currency": _clean(row.get("currency")) or currency,
+            "counterparty": _clean(row.get("counterparty")),
+            "counterparty_iban": None,
+            "description": _clean(row.get("description")),
+            "status": "BOOK",
+            "mcc": None,
+            "bank_code": _clean(row.get("bank_code")),
+        }
+        fingerprint = "|".join(str(x) for x in (day, amount, tx["currency"], tx["counterparty"], tx["description"]))
+        occurrence = seen.get(fingerprint, 0)
+        seen[fingerprint] = occurrence + 1
+        tx["id"] = "s:" + hashlib.sha1(f"{fingerprint}|{occurrence}".encode()).hexdigest()[:20]
+        result.append(tx)
+    return result
+
+
 def last_booked_date(stored: dict[str, Any] | None) -> date | None:
     dates = [tx.get("date") for tx in ((stored or {}).get("booked") or {}).values() if tx.get("date")]
     if not dates:

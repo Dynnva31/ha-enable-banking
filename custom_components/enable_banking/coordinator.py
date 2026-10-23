@@ -270,6 +270,37 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
         self.async_update_listeners()
         return report
 
+    async def async_import_statement(self, key: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+        """Add movements from a bank statement before the first stored one,
+        then rebuild that account's past balances."""
+        account = next((a for a in self.accounts if a["identification_hash"] == key), None)
+        if account is None:
+            return {"imported": 0}
+        stored_accounts: dict[str, Any] = dict(self._tx.get("accounts") or {})
+        stored = stored_accounts.get(key) or {}
+        booked: dict[str, Any] = dict(stored.get("booked") or {})
+        # The cut is the first movement read from the bank, not an imported one.
+        dates = [t["date"] for k, t in booked.items() if t.get("date") and not k.startswith("s:")]
+        first = min(dates) if dates else None
+        rows_in = tx_utils.from_statement(rows, account.get("currency") or "EUR", first)
+        new = [t for t in rows_in if t["id"] not in booked]
+        for tx in new:
+            booked[tx["id"]] = tx
+        stored_accounts[key] = {"booked": booked, "pending": list(stored.get("pending") or [])}
+        done = [k for k in (self._tx.get("history_done") or []) if k != key]
+        self._tx = {**self._tx, "accounts": stored_accounts, "history_done": done}
+        await self._tx_store.async_save(self._tx)
+        await self._async_backfill_history(self.data or {})
+        self.async_update_listeners()
+        kept = sorted(t["date"] for t in rows_in)
+        return {
+            "imported": len(new),
+            "already_there": len(rows_in) - len(new),
+            "ignored": len(rows) - len(rows_in),
+            "from": kept[0] if kept else None,
+            "to": kept[-1] if kept else None,
+        }
+
     async def _async_update_balances(self) -> dict[str, dict[str, Any]]:
         now = dt_util.utcnow()
         cached: dict[str, dict[str, Any]] = self._cache.get("accounts", {})

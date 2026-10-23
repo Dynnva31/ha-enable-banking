@@ -50,6 +50,8 @@ Cada movimiento trae importe con signo (negativo = salida), fecha, contraparte, 
 
 Tras renovar el acceso, `enable_banking.read_history` (solo administradores) vuelve a pedir todo el historial y dice hasta qué fecha llegó cada cuenta. Algunos bancos solo lo dan unos minutos después de identificarte (Revolut, 5 minutos).
 
+Si el banco ya no da los meses antiguos, `enable_banking.import_statement` (solo administradores) añade los movimientos de un extracto exportado del banco (CSV), solo los anteriores al primero leído, y rehace el historial del saldo. Importar dos veces el mismo extracto no duplica nada.
+
 Para revisar la clasificación, el servicio `enable_banking.audit` (solo administradores, devuelve respuesta) lista los movimientos de los últimos N días con su motivo.
 
 ## Historial desde el primer día

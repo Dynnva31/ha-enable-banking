@@ -85,6 +85,20 @@
     "read_history": {
       "name": "Leer historial",
       "description": "Lee todos los movimientos que los bancos aún guardan. Mejor en la hora siguiente a renovar el acceso."
+    },
+    "import_statement": {
+      "name": "Importar extracto",
+      "description": "Añade movimientos de un extracto del banco (CSV) anteriores a los que ya hay, y rehace el historial del saldo.",
+      "fields": {
+        "account": {
+          "name": "Cuenta",
+          "description": "Sensor de saldo de la cuenta."
+        },
+        "transactions": {
+          "name": "Movimientos",
+          "description": "Lista con date, amount y, si se tiene, description, counterparty y bank_code."
+        }
+      }
     }
   }
 }

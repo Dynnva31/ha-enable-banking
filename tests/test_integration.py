@@ -513,3 +513,27 @@ def test_holder_name_in_the_concept() -> None:
     card = {"counterparty": None, "description": "TARJETA VISA ANA MARIA GARCIA LOPEZ SHOP"}
     assert own.reason(sent) == "name" and own.reason(hyphen) == "name"
     assert own.reason(partner) is None and own.reason(card) is None
+
+
+async def test_import_statement(hass: HomeAssistant, aioclient_mock, pem, hass_admin_user) -> None:
+    from homeassistant.core import Context
+
+    _mock_api(aioclient_mock)
+    await _run_flow(hass, pem)
+    await hass.async_block_till_done()
+    entity_id = next(s.entity_id for s in hass.states.async_all("sensor") if s.attributes.get("share_percent") is not None)
+    rows = [
+        {"date": "2026-09-01", "amount": 100, "description": "Payment from Ana", "bank_code": "TOPUP"},
+        {"date": "2026-09-02", "amount": -5.5, "description": "Cafe"},
+        {"date": "2026-09-02", "amount": -5.5, "description": "Cafe"},  # same coffee twice: both kept
+        {"date": "2026-10-21", "amount": 300, "description": "Traspaso"},  # already read from the bank
+        {"date": "bad", "amount": 1},
+    ]
+    call = lambda: hass.services.async_call(  # noqa: E731
+        DOMAIN, "import_statement", {"account": entity_id, "transactions": rows},
+        blocking=True, return_response=True, context=Context(user_id=hass_admin_user.id),
+    )
+    result = await call()
+    assert result["imported"] == 3 and result["from"] == "2026-09-01" and result["to"] == "2026-09-02"
+    again = await call()
+    assert again["imported"] == 0 and again["already_there"] == 3

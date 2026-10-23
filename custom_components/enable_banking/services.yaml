@@ -9,3 +9,15 @@ audit:
           mode: box
 
 read_history:
+
+import_statement:
+  fields:
+    account:
+      required: true
+      selector:
+        entity:
+          integration: enable_banking
+    transactions:
+      required: true
+      selector:
+        object:
