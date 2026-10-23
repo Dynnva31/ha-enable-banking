@@ -29,7 +29,7 @@ from .api import (
     pick_balance,
 )
 from . import history
-from .logo import async_find_logo
+from .logo import LOGO_VERSION, async_find_logo
 from . import transactions as tx_utils
 from .util import mask_iban
 from .const import (
@@ -100,6 +100,11 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
         return self._cache.get("logo")
 
     @property
+    def logo_app(self) -> str | None:
+        """The App Store app whose icon is the picture, when it is one."""
+        return self._cache.get("logo_app")
+
+    @property
     def consent_valid_until(self) -> datetime | None:
         return dt_util.parse_datetime(self.config_entry.data.get(CONF_VALID_UNTIL, ""))
 
@@ -129,14 +134,15 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
         return data
 
     async def _async_update_logo(self) -> None:
-        """Look the logo up once a month; never let it break an update."""
+        """Look the picture up once a month; never let it break an update."""
         checked = dt_util.parse_datetime(self._cache.get("logo_checked", ""))
         now = dt_util.utcnow()
-        if checked and now - checked < LOGO_RECHECK:
+        fresh = checked and now - checked < LOGO_RECHECK
+        if fresh and self._cache.get("logo_version") == LOGO_VERSION:
             return
         data = self.config_entry.data
         try:
-            logo = await async_find_logo(
+            logo, app = await async_find_logo(
                 self.hass,
                 self.client,
                 data[CONF_ASPSP_NAME],
@@ -144,8 +150,16 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
             )
         except Exception:  # noqa: BLE001 - cosmetic, retried next month
             _LOGGER.debug("Logo lookup failed", exc_info=True)
-            logo = self._cache.get("logo")
-        self._cache = {**self._cache, "logo": logo, "logo_checked": now.isoformat()}
+            logo, app = None, None
+        if not logo:  # keep what we had rather than lose it to a hiccup
+            logo, app = self._cache.get("logo"), self._cache.get("logo_app")
+        self._cache = {
+            **self._cache,
+            "logo": logo,
+            "logo_app": app,
+            "logo_version": LOGO_VERSION,
+            "logo_checked": now.isoformat(),
+        }
         await self._store.async_save(self._cache)
 
     async def _async_backfill_history(self, data: dict[str, dict[str, Any]]) -> None:

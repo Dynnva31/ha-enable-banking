@@ -4,7 +4,7 @@ Integración personal y de **solo lectura** que trae a Home Assistant el saldo d
 
 - Un sensor de saldo por cuenta (moneda de la cuenta), con el saldo contable (`CLBD`) cuando el banco lo da.
 - Porcentaje propio por cuenta (atributo `share_percent`) y tu parte en euros (`my_share`), útil para cuentas compartidas.
-- Logo del banco como imagen de la entidad (`entity_picture`), el que publica Enable Banking para cada banco, en PNG.
+- Imagen de cada banco (`entity_picture`): el icono de su app oficial en el App Store (atributo `logo_app` con el nombre de la app) o, si no la encuentra, el logo que publica Enable Banking.
 - Un sensor con la fecha en que caduca el permiso del banco. Cuando caduca, Home Assistant abre un aviso para reconectarlo.
 - Lee cada 6 horas: PSD2 permite 4 lecturas desatendidas al día por cuenta. Guarda la última lectura en caché, así que un reinicio no gasta lecturas y un fallo puntual del banco no deja el sensor vacío.
 

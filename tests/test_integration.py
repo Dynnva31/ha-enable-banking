@@ -37,7 +37,19 @@ def _mock_api(aioclient_mock, *, balances_status=200):
         ]},
     )
     aioclient_mock.get(
-        "https://enablebanking.com/brands/ES/Ibercaja/-/resize/160x/-/format/png/",
+        "https://itunes.apple.com/search",
+        params={"term": "ibercaja", "country": "es", "entity": "software", "limit": "15"},
+        json={"results": [
+            {"trackName": "Ibercaja Empresas", "sellerName": "Ibercaja Banco, S.A.", "genreIds": ["6015"],
+             "userRatingCount": 900, "artworkUrl512": "https://is1-ssl.mzstatic.com/image/thumb/b/512x512bb.jpg"},
+            {"trackName": "Ibercaja", "sellerName": "Ibercaja Banco, S.A.", "genreIds": ["6015", "6000"],
+             "userRatingCount": 45000, "artworkUrl512": "https://is1-ssl.mzstatic.com/image/thumb/a/512x512bb.jpg"},
+            {"trackName": "Caja Puzzle", "sellerName": "Games Ltd", "genreIds": ["6014"],
+             "userRatingCount": 99000, "artworkUrl512": "https://is1-ssl.mzstatic.com/image/thumb/g/512x512bb.jpg"},
+        ]},
+    )
+    aioclient_mock.get(
+        "https://is1-ssl.mzstatic.com/image/thumb/a/256x256bb.png",
         content=b"\x89PNG", headers={"Content-Type": "image/png"},
     )
     aioclient_mock.post(f"{API}/auth", json={"url": "https://bank.example/login?x=1", "authorization_id": "a1"})
@@ -145,9 +157,8 @@ async def test_full_flow_and_sensor(hass: HomeAssistant, aioclient_mock, pem) ->
     assert state.attributes["bank"] == "Ibercaja Banco"
     assert state.attributes["account"] == "Cuenta ··9012"
     assert state.attributes["unit_of_measurement"] == "EUR"
-    assert state.attributes["entity_picture"] == (
-        "https://enablebanking.com/brands/ES/Ibercaja/-/resize/160x/-/format/png/"
-    )
+    assert state.attributes["entity_picture"] == "https://is1-ssl.mzstatic.com/image/thumb/a/256x256bb.png"
+    assert state.attributes["logo_app"] == "Ibercaja"
 
     # The JWT is signed with the uploaded key and carries the app id as kid.
     auth_header = next(h for (_, _, _, h) in aioclient_mock.mock_calls if h and "Authorization" in h)
@@ -571,3 +582,28 @@ def test_statement_completes_and_recovers() -> None:
     # The next read (now with distinct ids) keeps the details.
     again = merge({"booked": stored}, normalize_all([bare] * 4, "EUR"), today=d(2026, 10, 23), keep_days=1100)["booked"]
     assert len(again) == 4 and all(t["description"] == "BRITISH AWYS" for t in again.values())
+
+
+def test_bank_app_icon_choice() -> None:
+    from custom_components.enable_banking.logo import bank_words, icon_url, pick_app
+
+    assert bank_words("Ibercaja Banco") == "ibercaja"
+    assert bank_words("Trade Republic") == "trade republic"
+    results = [
+        {"trackName": "Revolut Business", "sellerName": "Revolut Ltd", "genreIds": ["6015"], "userRatingCount": 3000,
+         "artworkUrl512": "https://x/b/512x512bb.jpg"},
+        {"trackName": "Revolut: Send, spend and save", "sellerName": "Revolut Ltd", "genreIds": ["6015"],
+         "userRatingCount": 200000, "artworkUrl512": "https://x/r/512x512bb.jpg"},
+        {"trackName": "Revolution Idle", "sellerName": "Clicker Co", "genreIds": ["6014"], "userRatingCount": 500000,
+         "artworkUrl512": "https://x/g/512x512bb.jpg"},
+    ]
+    app = pick_app(results, "Revolut")
+    assert app["trackName"].startswith("Revolut: ")
+    assert icon_url(app) == "https://x/r/256x256bb.png"
+    # A namesake publisher outside Finance, or no match at all: no icon.
+    assert pick_app(results[2:], "Revolut") is None
+    trade = [{"trackName": "Trade Republic: Broker & Bank", "sellerName": "Trade Republic Bank GmbH",
+              "genreIds": ["6015"], "artworkUrl512": "https://x/t/512x512bb.jpg"},
+             {"trackName": "Trade Simulator", "sellerName": "Republic Games", "genreIds": ["6015"],
+              "artworkUrl512": "https://x/s/512x512bb.jpg"}]
+    assert pick_app(trade, "Trade Republic")["sellerName"] == "Trade Republic Bank GmbH"

@@ -118,6 +118,7 @@ class AccountBalanceSensor(_BankEntity, SensorEntity):
             "fetched_at": data.get("fetched_at"),
             "stale": data.get("stale", False),
             "consent_valid_until": valid_until.isoformat() if valid_until else None,
+            "logo_app": self.coordinator.logo_app,
         }
 
 
