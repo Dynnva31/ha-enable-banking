@@ -191,3 +191,13 @@ async def test_missing_key_error(hass: HomeAssistant, aioclient_mock, pem) -> No
         result["flow_id"], {"private_key": "not a key", "app_id": APP_ID}
     )
     assert result["errors"] == {"base": "invalid_key"}
+
+
+def test_account_label_product_codes():
+    from custom_components.enable_banking.util import account_label
+
+    iban = "ES0000000000000000004321"
+    assert account_label({"product": "CHECKING_ACCOUNT", "iban": iban}) == "Cuenta corriente ··4321"
+    assert account_label({"product": "XYZ_123", "iban": iban}) == "Cuenta ··4321"
+    assert account_label({"product": "Cuenta Online", "iban": iban}) == "Cuenta Online ··4321"
+    assert account_label({"iban": iban}) == "Cuenta ··4321"
