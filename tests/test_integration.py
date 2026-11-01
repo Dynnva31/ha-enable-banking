@@ -607,3 +607,25 @@ def test_bank_app_icon_choice() -> None:
              {"trackName": "Trade Simulator", "sellerName": "Republic Games", "genreIds": ["6015"],
               "artworkUrl512": "https://x/s/512x512bb.jpg"}]
     assert pick_app(trade, "Trade Republic")["sellerName"] == "Trade Republic Bank GmbH"
+
+
+def test_payment_in_another_currency_keeps_where_and_how_much() -> None:
+    from custom_components.enable_banking import transactions as t
+
+    raw = {
+        "transaction_amount": {"amount": "43.93", "currency": "EUR"},
+        "credit_debit_indicator": "DBIT",
+        "booking_date": "2026-09-28",
+        "creditor": {"name": "Shop", "postal_address": {"country": "us"}},
+        "exchange_rate": {"unit_currency": "USD", "instructed_amount": {"amount": "51.40", "currency": "USD"}},
+        "entry_reference": "x1",
+    }
+    tx = t.normalize(raw, "EUR")
+    assert tx["original_currency"] == "USD"
+    assert tx["original_amount"] == 51.4
+    assert tx["country"] == "US"
+    public = t.public(tx, account="a", bank="b", share=100, internal=False)
+    assert public["original_currency"] == "USD" and public["country"] == "US"
+    # In the account's own currency: nothing extra.
+    plain = t.normalize({**raw, "exchange_rate": None, "creditor": {"name": "Shop"}, "entry_reference": "x2"}, "EUR")
+    assert "original_currency" not in plain and "country" not in plain

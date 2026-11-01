@@ -47,6 +47,19 @@ def normalize(raw: dict[str, Any], currency: str) -> dict[str, Any] | None:
     status = (raw.get("status") or "BOOK").upper()
 
     counterparty = _clean(party.get("name"))
+    # A card payment in another currency: what the shop charged, before the
+    # bank turned it into the account's currency (and where the shop is).
+    exchange = raw.get("exchange_rate") or {}
+    instructed = (exchange.get("instructed_amount") if isinstance(exchange, dict) else None) or raw.get("instructed_amount") or {}
+    original_currency = _clean(instructed.get("currency")) if isinstance(instructed, dict) else None
+    if not original_currency and isinstance(exchange, dict):
+        original_currency = _clean(exchange.get("source_currency")) or _clean(exchange.get("unit_currency"))
+    try:
+        original_amount = round(abs(float(instructed.get("amount"))), 2) if isinstance(instructed, dict) and instructed.get("amount") is not None else None
+    except (TypeError, ValueError):
+        original_amount = None
+    address = party.get("postal_address") or {}
+    country = _clean(address.get("country")) if isinstance(address, dict) else None
     tx = {
         "date": str(booked_on)[:10],
         "transaction_date": (raw.get("transaction_date") or None),
@@ -59,6 +72,13 @@ def normalize(raw: dict[str, Any], currency: str) -> dict[str, Any] | None:
         "mcc": raw.get("merchant_category_code"),
         "bank_code": _clean(code.get("description")) or _clean(code.get("code")),
     }
+    account_currency = (amount_info.get("currency") or currency or "").upper()
+    if original_currency and original_currency.upper() != account_currency:
+        tx["original_currency"] = original_currency.upper()
+        if original_amount is not None:
+            tx["original_amount"] = original_amount
+    if country:
+        tx["country"] = country.upper()[:2]
 
     reference = raw.get("entry_reference") or raw.get("transaction_id")
     if reference:
@@ -281,6 +301,9 @@ def public(tx: dict[str, Any], *, account: str | None, bank: str, share: float, 
         "status": tx.get("status"),
         "mcc": tx.get("mcc"),
         "bank_code": tx.get("bank_code"),
+        "original_currency": tx.get("original_currency"),
+        "original_amount": tx.get("original_amount"),
+        "country": tx.get("country"),
         "internal": internal,
         "share_percent": share,
     }
