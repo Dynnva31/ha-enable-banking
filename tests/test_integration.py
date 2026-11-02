@@ -265,6 +265,7 @@ async def test_transactions_endpoint(
     assert txs[1]["counterparty_iban"] == "ES76 •••• 0001"
     assert txs[2]["amount"] == -54.2 and txs[2]["internal"] is False and txs[2]["mcc"] == "5411"
     assert txs[2]["id"] == "r:e1"
+    assert body["banks"][0]["ok"] is True and body["banks"][0]["valid_until"]
 
     resp = await client.get("/api/enable_banking/transactions?since=2026-10-21")
     assert len((await resp.json())["transactions"]) == 2
@@ -629,3 +630,19 @@ def test_payment_in_another_currency_keeps_where_and_how_much() -> None:
     # In the account's own currency: nothing extra.
     plain = t.normalize({**raw, "exchange_rate": None, "creditor": {"name": "Shop"}, "entry_reference": "x2"}, "EUR")
     assert "original_currency" not in plain and "country" not in plain
+
+
+def test_bank_status_says_when_to_renew() -> None:
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+
+    from custom_components.enable_banking.ledger import bank_status
+
+    later = (dt_util.utcnow() + timedelta(days=20)).isoformat()
+    gone = (dt_util.utcnow() - timedelta(days=1)).isoformat()
+    ok = bank_status("Ibercaja", later, True, "2026-11-02T08:00:00+00:00")
+    assert ok["ok"] is True and ok["valid_until"].startswith(later[:10]) and ok["bank"] == "Ibercaja"
+    assert bank_status("Ibercaja", gone, True, None)["ok"] is False
+    assert bank_status("Revolut", None, False, None)["ok"] is False
+    assert bank_status("Revolut", None, True, None)["valid_until"] is None

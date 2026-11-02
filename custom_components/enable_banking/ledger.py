@@ -19,9 +19,10 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 
 from . import transactions as tx_utils
-from .const import CONF_ACCOUNTS, CONF_ASPSP_NAME, DOMAIN, OPT_SHARES
+from .const import CONF_ACCOUNTS, CONF_ASPSP_NAME, CONF_VALID_UNTIL, DOMAIN, OPT_SHARES
 from .util import account_label, mask_iban
 
 PAIR_MAX_DAYS = 4
@@ -82,6 +83,18 @@ def match_pairs(items: list[dict[str, Any]]) -> dict[str, str]:
     return pairs
 
 
+def bank_status(name: str, valid_until: str | None, working: bool, fetched_at: str | None) -> dict[str, Any]:
+    """How one bank's link is doing, so an app can say when to renew it:
+    the date the bank's consent ends and whether the last read worked."""
+    valid = dt_util.parse_datetime(valid_until or "")
+    return {
+        "bank": name,
+        "valid_until": valid.isoformat() if valid else None,
+        "ok": working and (valid is None or valid > dt_util.utcnow()),
+        "fetched_at": fetched_at,
+    }
+
+
 def collect(hass: HomeAssistant, since: str | None = None) -> dict[str, Any]:
     """Accounts and transactions of every loaded bank, newest first."""
     all_entries = hass.config_entries.async_entries(DOMAIN)
@@ -137,4 +150,23 @@ def collect(hass: HomeAssistant, since: str | None = None) -> dict[str, Any]:
         items.append(item)
 
     items.sort(key=lambda t: (t["status"] == "PDNG", t.get("date") or "", t.get("transaction_date") or ""), reverse=True)
-    return {"accounts": accounts, "transactions": items, "fetched_at": max(fetched) if fetched else None}
+
+    # Every bank, also one that stopped loading (its consent ended).
+    banks: list[dict[str, Any]] = []
+    for entry in all_entries:
+        loaded = entry.state is ConfigEntryState.LOADED
+        coordinator = getattr(entry, "runtime_data", None) if loaded else None
+        fetched_at = coordinator.transactions_fetched_at if coordinator else None
+        banks.append(bank_status(
+            entry.data.get(CONF_ASPSP_NAME) or entry.title,
+            entry.data.get(CONF_VALID_UNTIL),
+            loaded and bool(getattr(coordinator, "last_update_success", True)),
+            fetched_at.isoformat() if fetched_at else None,
+        ))
+
+    return {
+        "accounts": accounts,
+        "transactions": items,
+        "fetched_at": max(fetched) if fetched else None,
+        "banks": banks,
+    }
