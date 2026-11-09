@@ -36,6 +36,10 @@ MAX_CONSENT: Final = timedelta(days=180)
 # Transactions are read twice a day, alongside a balance read, to stay well
 # inside the daily access limit some banks apply across all account endpoints.
 TRANSACTIONS_INTERVAL: Final = timedelta(hours=11, minutes=30)
+# Money came in (a balance went up): read the movements sooner, so a client's
+# payment shows the same day. At most twice a day, and never closer together.
+TRANSACTIONS_EARLY_AFTER: Final = timedelta(hours=5)
+TRANSACTIONS_EARLY_PER_DAY: Final = 2
 # First read: most banks only give 90 days without a fresh login.
 TRANSACTIONS_INITIAL_DAYS: Final = 89
 # Right after a login (new connection or renewed access) PSD2 lets banks hand

@@ -43,6 +43,8 @@ from .const import (
     DOMAIN,
     TRANSACTIONS_HISTORY_DAYS,
     TRANSACTIONS_INITIAL_DAYS,
+    TRANSACTIONS_EARLY_AFTER,
+    TRANSACTIONS_EARLY_PER_DAY,
     TRANSACTIONS_INTERVAL,
     TRANSACTIONS_KEEP_DAYS,
     TRANSACTIONS_OVERLAP_DAYS,
@@ -127,8 +129,16 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
         self._tx = await self._tx_store.async_load() or {}
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
+        before = {key: value.get("amount") for key, value in (self.data or {}).items()}
         data = await self._async_update_balances()
-        await self._async_update_transactions()
+        money_in = any(
+            not value.get("stale")
+            and isinstance(value.get("amount"), (int, float))
+            and isinstance(before.get(key), (int, float))
+            and value["amount"] > before[key] + 0.009
+            for key, value in data.items()
+        )
+        await self._async_update_transactions(money_in=money_in)
         await self._async_backfill_history(data)
         await self._async_update_logo()
         return data
@@ -198,7 +208,7 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
             self._tx = {**self._tx, "history_done": sorted(done)}
             await self._tx_store.async_save(self._tx)
 
-    async def _async_update_transactions(self) -> None:
+    async def _async_update_transactions(self, money_in: bool = False) -> None:
         """Read new transactions twice a day; failures keep what is stored.
 
         Right after a login (a new connection or renewed access) it reads up
@@ -212,8 +222,22 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
             self._tx = {**self._tx, "session_id": session}
         fresh_login = self._tx.get("session_id") != session
         fetched_at = self.transactions_fetched_at
-        if not fresh_login and fetched_at and now - fetched_at < TRANSACTIONS_INTERVAL:
+        # Early reads of the last day (a balance went up since the last poll).
+        early_reads = [
+            moment for moment in (dt_util.parse_datetime(text) for text in self._tx.get("early_reads") or [])
+            if moment and now - moment < timedelta(days=1)
+        ]
+        early = (
+            money_in
+            and fetched_at is not None
+            and now - fetched_at >= TRANSACTIONS_EARLY_AFTER
+            and len(early_reads) < TRANSACTIONS_EARLY_PER_DAY
+        )
+        if not fresh_login and fetched_at and now - fetched_at < TRANSACTIONS_INTERVAL and not early:
             return
+        if early and not fresh_login and now - fetched_at < TRANSACTIONS_INTERVAL:
+            early_reads.append(now)
+            _LOGGER.debug("Ha entrado dinero: se leen los movimientos antes de tiempo")
 
         today = dt_util.now().date()
         stored_accounts: dict[str, Any] = dict(self._tx.get("accounts") or {})
@@ -262,6 +286,7 @@ class EnableBankingCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
                 "fetched_at": now.isoformat(),
                 "accounts": stored_accounts,
                 "session_id": session,
+                "early_reads": [moment.isoformat() for moment in early_reads],
             }
             if fresh_login:
                 # Older days may have arrived: rebuild the history again.
