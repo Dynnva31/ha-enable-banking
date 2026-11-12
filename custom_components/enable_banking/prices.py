@@ -20,8 +20,9 @@ import json
 import logging
 from typing import Any
 
+import aiohttp
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
@@ -39,6 +40,8 @@ BENCHMARK_ISIN = "IE00B4L5Y983"
 
 INTERVAL = timedelta(minutes=30)
 MAX_JUMP = 0.25
+COOKIE = "https://fc.yahoo.com"
+CRUMB = "https://query1.finance.yahoo.com/v1/test/getcrumb"
 SEARCH = "https://query2.finance.yahoo.com/v1/finance/search"
 CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"}
@@ -49,7 +52,9 @@ class PriceUpdater:
 
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
-        self.session = async_get_clientsession(hass)
+        # Its own cookies: Yahoo answers only with its session cookie and crumb.
+        self.session = async_create_clientsession(hass, cookie_jar=aiohttp.CookieJar())
+        self.crumb: str | None = None
         self.store: Store = Store(hass, 1, f"{DOMAIN}.prices")
         self.symbols: dict[str, str] = {}
         self.loaded = False
@@ -66,16 +71,43 @@ class PriceUpdater:
 
     # MARK: Yahoo Finance
 
-    async def _get(self, url: str, params: dict[str, Any]) -> dict[str, Any] | None:
+    async def _refresh_crumb(self) -> None:
+        """Yahoo's session cookie, then the crumb that goes with it."""
+        self.crumb = None
         try:
-            async with self.session.get(url, params=params, headers=HEADERS, timeout=20) as response:
-                if response.status != 200:
-                    _LOGGER.debug("%s answered %s", url, response.status)
-                    return None
-                return await response.json(content_type=None)
+            async with self.session.get(COOKIE, headers=HEADERS, timeout=20, allow_redirects=True):
+                pass
+        except Exception as err:  # noqa: BLE001 - fc.yahoo.com answers 404 but sets the cookie
+            _LOGGER.debug("Yahoo cookie: %s", err)
+        try:
+            async with self.session.get(CRUMB, headers=HEADERS, timeout=20) as response:
+                text = (await response.text()).strip()
+                if response.status == 200 and text and "<" not in text and len(text) < 40:
+                    self.crumb = text
+                else:
+                    _LOGGER.debug("Yahoo crumb answered %s", response.status)
         except Exception as err:  # noqa: BLE001
-            _LOGGER.debug("%s failed: %s", url, err)
-            return None
+            _LOGGER.debug("Yahoo crumb failed: %s", err)
+
+    async def _get(self, url: str, params: dict[str, Any]) -> dict[str, Any] | None:
+        for attempt in range(2):
+            if self.crumb is None:
+                await self._refresh_crumb()
+            query = dict(params)
+            if self.crumb:
+                query["crumb"] = self.crumb
+            try:
+                async with self.session.get(url, params=query, headers=HEADERS, timeout=20) as response:
+                    if response.status == 200:
+                        return await response.json(content_type=None)
+                    _LOGGER.debug("%s answered %s", url, response.status)
+                    if response.status not in (401, 403, 429) or attempt:
+                        return None
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("%s failed: %s", url, err)
+                return None
+            self.crumb = None
+        return None
 
     async def _chart(self, symbol: str) -> dict[str, Any] | None:
         """Price, its time and the year's return for one symbol, in euros."""
@@ -145,7 +177,8 @@ class PriceUpdater:
             units = float(data.get("u") or 0)
             old = float(data.get("p") or 0)
             new = old
-            symbol = await self._symbol(str(data["isin"]), str(data.get("t", "")))
+            # An "s" in the position's JSON is its Yahoo symbol, when the search can't find it.
+            symbol = data.get("s") or await self._symbol(str(data["isin"]), str(data.get("t", "")))
             quote = await self._chart(symbol) if symbol else None
             if quote and quote["date"] >= str(data.get("d", "")) and (
                 old <= 0 or abs(quote["price"] / old - 1) <= MAX_JUMP
