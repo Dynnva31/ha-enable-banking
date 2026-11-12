@@ -99,6 +99,10 @@
           "description": "Lista con date, amount y, si se tiene, description, counterparty y bank_code."
         }
       }
+    },
+    "update_prices": {
+      "name": "Actualizar precios",
+      "description": "Busca ahora los precios de las inversiones (input_text.myinvestor_*). Solo administradores."
     }
   }
 }

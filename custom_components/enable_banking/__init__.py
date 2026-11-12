@@ -16,6 +16,7 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
 from . import ledger
+from .prices import PriceUpdater
 
 from .api import EnableBankingClient, InvalidPrivateKey
 from .const import CONF_APP_ID, CONF_PRIVATE_KEY, DOMAIN
@@ -105,6 +106,21 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     hass.services.async_register(
         DOMAIN, "import_statement", import_statement, schema=IMPORT_SCHEMA, supports_response=SupportsResponse.OPTIONAL
+    )
+
+    # Investment prices on their own, every half hour (see prices.py).
+    prices = PriceUpdater(hass)
+    await prices.async_start()
+
+    async def update_prices(call: ServiceCall) -> ServiceResponse:
+        """Look up the investment prices now. Administrators only."""
+        user = await hass.auth.async_get_user(call.context.user_id) if call.context.user_id else None
+        if user is None or not user.is_admin:
+            raise Unauthorized(context=call.context)
+        return await prices.async_update()
+
+    hass.services.async_register(
+        DOMAIN, "update_prices", update_prices, supports_response=SupportsResponse.OPTIONAL
     )
     return True
 

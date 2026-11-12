@@ -59,6 +59,10 @@ Para revisar la clasificación, el servicio `enable_banking.audit` (solo adminis
 
 Home Assistant solo guarda un saldo desde que se añade la integración. Para que los gráficos no empiecen vacíos, la integración reconstruye una vez el saldo de cierre de cada día anterior a partir de los movimientos ya leídos: parte del saldo de hoy y deshace cada movimiento. Esos días se importan como estadísticas del sensor de saldo, solo los anteriores a añadir la integración, así que no se sobrescribe nada medido. Cuando llegan movimientos más antiguos (una renovación, un extracto) se rehacen con ellos. Todo ocurre dentro de Home Assistant.
 
+## Precios de inversiones (opcional)
+
+Si tienes posiciones como ayudantes `input_text.myinvestor_*` con JSON (`isin`, participaciones `u`, precio `p`, valor `v`, invertido `i`, fecha `d`, rentabilidad del año `y`), la integración busca cada media hora su precio en Yahoo Finance (fondos por su valor liquidativo; ETF y ETC en Xetra; siempre en euros) y actualiza precio, valor, fecha y rentabilidad, además de `input_number.myinvestor_cartera`, `input_number.cartera_indice` y `input_number.msci_world_precio` si existen. Nunca vuelve a un precio más antiguo ni acepta un salto de más del 25 %, y no toca participaciones ni importes invertidos. Servicio para lanzarlo a mano: `enable_banking.update_prices`. Solo se envían ISIN y símbolos, ningún dato personal.
+
 ## Privacidad
 
 La clave privada y los identificadores de sesión se guardan en la configuración local de Home Assistant. Los saldos y movimientos solo pasan por Enable Banking (proveedor regulado por la autoridad financiera de Finlandia) y por tu Home Assistant.
