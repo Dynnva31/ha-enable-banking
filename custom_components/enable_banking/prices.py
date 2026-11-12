@@ -4,8 +4,10 @@ Optional: it only does something when Home Assistant has positions as
 `input_text.<prefix>*` helpers holding compact JSON such as
 `{"n":"Fund","isin":"IE00…","t":"fondo","u":12.5,"p":18.2,"v":227.5,"i":200,"d":"2026-11-12","y":4.1}`
 (units `u`, price `p`, value `v`, invested `i`, price date `d`, year-to-date
-return `y`). Every half hour it looks up each ISIN on Yahoo Finance (funds by
-their daily NAV, ETFs and ETCs on Xetra, always in euros) and writes back the
+return `y`). Every half hour it looks up each price, always in euros: funds by
+their daily NAV (Morningstar, then the Financial Times), ETFs and ETCs on
+Xetra (the Financial Times, by the ticker in `f` such as "VGWL:GER:EUR"),
+with Yahoo Finance (`s`) as a last resort. It writes back the
 newer price, the value, the date and the year's return, plus the portfolio
 total and a time-weighted index (`input_number.<prefix>cartera`,
 `input_number.cartera_indice`). It never goes back to an older price, never
@@ -18,6 +20,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import json
 import logging
+import re
 from typing import Any
 
 import aiohttp
@@ -40,6 +43,11 @@ BENCHMARK_ISIN = "IE00B4L5Y983"
 
 INTERVAL = timedelta(minutes=30)
 MAX_JUMP = 0.25
+MORNINGSTAR = "https://lt.morningstar.com/api/rest.svc/klr5zyak8x/security/screener"
+MORNINGSTAR_UNIVERSES = ("FOESP$$ALL", "FOEUR$$ALL", "ETEUR$$ALL")
+FT_FUND = "https://markets.ft.com/data/funds/tearsheet/summary"
+FT_ETF = "https://markets.ft.com/data/etfs/tearsheet/summary"
+BENCHMARK_FT = "EUNL:GER:EUR"
 COOKIE = "https://fc.yahoo.com"
 CRUMB = "https://query1.finance.yahoo.com/v1/test/getcrumb"
 SEARCH = "https://query2.finance.yahoo.com/v1/finance/search"
@@ -147,6 +155,78 @@ class PriceUpdater:
                 return quote["symbol"]
         return None
 
+    # MARK: Other sources
+
+    async def _text(self, url: str, params: dict[str, Any]) -> str | None:
+        try:
+            async with self.session.get(url, params=params, headers=HEADERS, timeout=20) as response:
+                if response.status != 200:
+                    _LOGGER.debug("%s answered %s", url, response.status)
+                    return None
+                return await response.text()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("%s failed: %s", url, err)
+            return None
+
+    async def _morningstar(self, isin: str, listed: bool) -> dict[str, Any] | None:
+        """A fund's last NAV and its date (and the year's return)."""
+        for universe in MORNINGSTAR_UNIVERSES:
+            text = await self._text(MORNINGSTAR, {
+                "page": 1, "pageSize": 5, "outputType": "json", "version": 1, "languageId": "es-ES",
+                "currencyId": "EUR", "universeIds": universe, "term": isin,
+                "securityDataPoints": "SecId|Name|ClosePrice|ClosePriceDate|ReturnM0|PriceCurrency|Isin",
+            })
+            try:
+                rows = json.loads(text or "")["rows"]
+            except (ValueError, KeyError, TypeError):
+                continue
+            for row in rows:
+                if row.get("Isin") not in (None, isin) or not row.get("ClosePrice") or not row.get("ClosePriceDate"):
+                    continue
+                currency = row.get("PriceCurrency")
+                if currency not in (None, "EUR") or (listed and currency != "EUR"):
+                    continue
+                return {"price": float(row["ClosePrice"]), "date": str(row["ClosePriceDate"])[:10],
+                        "ytd": row.get("ReturnM0"), "source": "morningstar"}
+        return None
+
+    async def _ft(self, url: str, symbol: str) -> dict[str, Any] | None:
+        """Price and date from a Financial Times tear sheet, only in euros."""
+        html = await self._text(url, {"s": symbol})
+        if not html:
+            return None
+        currency = re.search(r"Price \(([A-Z]{3})\)", html)
+        price = re.search(r'mod-ui-data-list__value">\s*([0-9][0-9.,]*)\s*<', html)
+        when = re.search(r"[Aa]s of ([A-Z][a-z]{2} \d{1,2} \d{4})", html)
+        if not (currency and price and when) or currency.group(1) != "EUR":
+            return None
+        try:
+            date = datetime.strptime(when.group(1), "%b %d %Y").date().isoformat()
+            value = float(price.group(1).replace(",", ""))
+        except ValueError:
+            return None
+        return {"price": value, "date": date, "ytd": None, "source": "ft"}
+
+    async def _quote(self, data: dict[str, Any]) -> dict[str, Any] | None:
+        isin = str(data["isin"])
+        listed = str(data.get("t", "")) in ("etf", "etc")
+        if listed:
+            sources = []
+            if data.get("f"):
+                sources.append(lambda: self._ft(FT_ETF, str(data["f"])))
+            sources.append(lambda: self._morningstar(isin, True))
+        else:
+            sources = [lambda: self._morningstar(isin, False), lambda: self._ft(FT_FUND, f"{isin}:EUR")]
+        for source in sources:
+            quote = await source()
+            if quote:
+                return quote
+        symbol = data.get("s") or await self._symbol(isin, str(data.get("t", "")))
+        quote = await self._chart(symbol) if symbol else None
+        if quote:
+            quote["source"] = "yahoo"
+        return quote
+
     # MARK: Update
 
     async def async_update(self) -> dict[str, Any]:
@@ -171,15 +251,14 @@ class PriceUpdater:
 
         changed: list[str] = []
         skipped: list[str] = []
+        kept: list[str] = []
         before = after = 0.0
         total = 0.0
         for entity_id, data in positions:
             units = float(data.get("u") or 0)
             old = float(data.get("p") or 0)
             new = old
-            # An "s" in the position's JSON is its Yahoo symbol, when the search can't find it.
-            symbol = data.get("s") or await self._symbol(str(data["isin"]), str(data.get("t", "")))
-            quote = await self._chart(symbol) if symbol else None
+            quote = await self._quote(data)
             if quote and quote["date"] >= str(data.get("d", "")) and (
                 old <= 0 or abs(quote["price"] / old - 1) <= MAX_JUMP
             ):
@@ -188,19 +267,21 @@ class PriceUpdater:
                 update["p"] = new
                 update["v"] = round(units * new, 2)
                 update["d"] = quote["date"]
-                if quote["ytd"] is not None:
-                    update["y"] = round(quote["ytd"], 2)
+                if quote.get("ytd") is not None:
+                    update["y"] = round(float(quote["ytd"]), 2)
                 if update != data:
                     text = json.dumps(update, ensure_ascii=False, separators=(",", ":"))
                     if len(text) <= 255:
                         await self.hass.services.async_call(
                             "input_text", "set_value", {"entity_id": entity_id, "value": text}, blocking=True
                         )
-                        changed.append(data.get("n") or entity_id)
+                        changed.append(f"{data.get('n') or entity_id} ({quote['source']} {quote['date']})")
                     else:
                         new = old
             elif not quote:
                 skipped.append(data.get("n") or entity_id)
+            else:
+                kept.append(f"{data.get('n') or entity_id} ({quote['source']} {quote['date']} {quote['price']})")
             before += units * old
             after += units * new
             total += units * new
@@ -218,13 +299,12 @@ class PriceUpdater:
 
         benchmark = None
         if self.hass.states.get(BENCHMARK):
-            symbol = await self._symbol(BENCHMARK_ISIN, "etf")
-            quote = await self._chart(symbol) if symbol else None
+            quote = await self._quote({"isin": BENCHMARK_ISIN, "t": "etf", "f": BENCHMARK_FT})
             if quote and 50 < quote["price"] < 400:
                 benchmark = round(quote["price"], 2)
                 await self._set_number(BENCHMARK, benchmark)
 
-        return {"positions": len(positions), "updated": changed, "no_price": skipped,
+        return {"positions": len(positions), "updated": changed, "no_price": skipped, "older_or_odd": kept,
                 "total": round(total, 2), "benchmark": benchmark}
 
     async def _set_number(self, entity_id: str, value: float) -> None:

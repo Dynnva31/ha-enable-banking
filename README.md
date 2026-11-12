@@ -61,7 +61,7 @@ Home Assistant solo guarda un saldo desde que se añade la integración. Para qu
 
 ## Precios de inversiones (opcional)
 
-Si tienes posiciones como ayudantes `input_text.myinvestor_*` con JSON (`isin`, participaciones `u`, precio `p`, valor `v`, invertido `i`, fecha `d`, rentabilidad del año `y`), la integración busca cada media hora su precio en Yahoo Finance (fondos por su valor liquidativo; ETF y ETC en Xetra; siempre en euros) y actualiza precio, valor, fecha y rentabilidad, además de `input_number.myinvestor_cartera`, `input_number.cartera_indice` y `input_number.msci_world_precio` si existen. Nunca vuelve a un precio más antiguo ni acepta un salto de más del 25 %, y no toca participaciones ni importes invertidos. Servicio para lanzarlo a mano: `enable_banking.update_prices`. Solo se envían ISIN y símbolos, ningún dato personal.
+Si tienes posiciones como ayudantes `input_text.myinvestor_*` con JSON (`isin`, participaciones `u`, precio `p`, valor `v`, invertido `i`, fecha `d`, rentabilidad del año `y`), la integración busca cada media hora su precio, siempre en euros: fondos por su valor liquidativo (Morningstar y, si no, Financial Times), ETF y ETC en Xetra (Financial Times, con el ticker en `f`, p. ej. `VGWL:GER:EUR`) y Yahoo Finance como último recurso (`s`) y actualiza precio, valor, fecha y rentabilidad, además de `input_number.myinvestor_cartera`, `input_number.cartera_indice` y `input_number.msci_world_precio` si existen. Nunca vuelve a un precio más antiguo ni acepta un salto de más del 25 %, y no toca participaciones ni importes invertidos. Servicio para lanzarlo a mano: `enable_banking.update_prices`. Solo se envían ISIN y símbolos, ningún dato personal.
 
 ## Privacidad
 
