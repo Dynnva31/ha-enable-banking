@@ -42,10 +42,14 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async def audit(call: ServiceCall) -> ServiceResponse:
         """Movements with how each one was classified, to check that no
         transfer between your own accounts counts as income or spending.
-        Administrators only (they can already read the stored files)."""
-        user = await hass.auth.async_get_user(call.context.user_id) if call.context.user_id else None
-        if user is None or not user.is_admin:
-            raise Unauthorized(context=call.context)
+        Administrators only (they can already read the stored files), or Home
+        Assistant itself: an automation or script (no user on the call; only
+        administrators can write those), e.g. the daily "will the balance cover
+        the direct debits?" check."""
+        if call.context.user_id:
+            user = await hass.auth.async_get_user(call.context.user_id)
+            if user is None or not user.is_admin:
+                raise Unauthorized(context=call.context)
         since = (dt_util.now().date() - timedelta(days=call.data["days"])).isoformat()
         data = ledger.collect(hass, since)
         return {
